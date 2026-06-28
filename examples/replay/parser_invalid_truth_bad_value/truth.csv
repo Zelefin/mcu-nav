@@ -1,0 +1,2 @@
+time_ms,node_id,true_lat_e7,true_lon_e7,true_alt_mm,true_vn_mmps,true_ve_mmps,true_vd_mmps
+1000,0,not_a_lat,305268000,183500,,,

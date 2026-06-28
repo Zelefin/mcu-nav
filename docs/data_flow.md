@@ -97,13 +97,18 @@ flowchart LR
     EVT --> CORE[nav_core]
     CORE --> SNAP[nav_snapshot_t]
     CORE --> LOG[nav_logger_t]
+    TRUTH[truth.csv optional] --> CMP[truth comparison]
     SNAP --> SOL[solution.csv]
+    SNAP --> CMP
+    CMP --> REPORT[compare_report.txt/json]
     CORE --> PEERS[peers.csv]
     LOG --> TXT[logs.txt]
 ```
 
 Replay emits `solution.csv` and `peers.csv` after every processed input row.
 Parser errors include the input line number and return a nonzero exit code.
+When `truth.csv` exists, replay compares exact `(time_ms,node_id)` solution rows
+against truth and writes comparison reports. It does not interpolate.
 
 ## Replay Event Sequence
 

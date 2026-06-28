@@ -21,7 +21,11 @@
   emits `solution.csv`, `peers.csv`, and `logs.txt`.
 - Done: CTest replay fixtures cover successful radio 3D navigation, rejection
   cases, and malformed parser input.
-- Still future: config rows/sidecar config and Python-reference comparison.
+- Done: fixture-level `replay_config.csv`, optional `truth.csv`, final expected
+  status checks, `compare_report.txt/json`, and optional Python reference
+  comparison helper.
+- Still future: full simulator-generated scenarios and broad reference
+  comparison coverage.
 
 ## Milestone 4: Simulator
 

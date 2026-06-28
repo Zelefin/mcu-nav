@@ -38,6 +38,7 @@ t=123456 level=INFO cat=PEER_TABLE event=telemetry_update peer=2 packet_seq=104 
 - `SOLUTION solution_status_transition`
 - `REPLAY replay_start`
 - `REPLAY event_applied`
+- `REPLAY truth_compare`
 - `REPLAY replay_summary`
 
 ## Examples
@@ -92,7 +93,8 @@ t=1000 level=INFO cat=RANGE event=range_update peer=2 request_id=77 range_mm=621
 - `peers.csv`: one row per present peer after every processed input row.
 - `solution.csv`: one snapshot row after every processed input row.
 - `logs.txt`: replay lifecycle logs plus structured core logs.
-- `truth.csv`: simulator-only ground truth.
+- `truth.csv`: optional replay input for exact-time comparison.
+- `compare_report.txt` / `compare_report.json`: emitted when truth is present.
 
-`truth.csv` is not produced by replay; it belongs to a future simulator. See
-`docs/replay_csv.md` for exact replay schemas.
+`truth.csv` is not produced by replay. The future simulator may generate it.
+See `docs/replay_csv.md` for exact replay schemas.

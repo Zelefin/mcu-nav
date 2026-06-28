@@ -27,7 +27,8 @@ For file-driven debugging, run:
 ```
 
 Then inspect `solution.csv` for the final status, `peers.csv` for anchor state,
-and `logs.txt` for the exact rejection or solve decision.
+`logs.txt` for the exact rejection or solve decision, and `compare_report.txt`
+when truth comparison is enabled.
 
 ## How Do I Know Local Altitude Is Valid?
 
@@ -90,6 +91,11 @@ must end with `RADIO_3D`, not `LOCAL_GNSS`.
 5. Run `ctest --test-dir build -V -R replay` to compare against regression
    fixtures.
 
+If `compare_report.txt` says `pass=false`, check the max error fields against
+the `max_allowed_*_error_m` thresholds in `replay_config.csv`. Rows without
+`RADIO_3D` source are counted as `rows_skipped_no_radio_solution`; radio
+solutions without exact truth timestamps are counted as `rows_skipped_no_truth`.
+
 ## Radio Failure Vs Navigation Rejection
 
 `range_fail_reason` explains why the radio/ranging attempt failed, such as
@@ -121,3 +127,5 @@ not use an anchor or solution, such as `STALE_RANGE` or `BAD_POSITION`.
 - `replay_reject_*`: replay rejection fixtures preserve deterministic reject
   behavior.
 - `replay_parser_*`: malformed replay input is rejected with nonzero exit.
+- `replay_parser_invalid_config_*`: malformed `replay_config.csv` is rejected.
+- `replay_parser_invalid_truth_*`: malformed `truth.csv` is rejected.

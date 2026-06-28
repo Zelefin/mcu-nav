@@ -1,0 +1,3 @@
+# Ground truth for the deterministic radio 3D fixture.
+time_ms,node_id,true_lat_e7,true_lon_e7,true_alt_mm,true_vn_mmps,true_ve_mmps,true_vd_mmps
+1000,0,504529000,305268000,183500,0,0,0

@@ -22,7 +22,8 @@ radio firmware, real GNSS drivers, a full simulator, or flight-controller output
 - POSIX demo injects a deterministic forced-denied scenario and prints the
   resulting snapshot.
 - Replay CLI consumes deterministic `events.csv` fixtures and writes
-  `solution.csv`, `peers.csv`, and `logs.txt` for regression/debug.
+  `solution.csv`, `peers.csv`, `logs.txt`, and optional truth comparison
+  reports for regression/debug.
 - Full simulator, plotting, real hardware ports, radio firmware, and
   FC/MAVLink output remain future work.
 
@@ -45,13 +46,17 @@ Run a replay fixture:
 ```bash
 ./build/tools/replay/nav_replay \
   --events examples/replay/radio_3d_success/events.csv \
+  --truth examples/replay/radio_3d_success/truth.csv \
+  --config examples/replay/radio_3d_success/replay_config.csv \
   --out-dir build/replay/radio_3d_success \
   --node-id 0 \
   --pretty
 ```
 
-Replay writes `solution.csv`, `peers.csv`, and `logs.txt` in the output
-directory. Run only replay tests with:
+Replay auto-discovers `replay_config.csv` and `truth.csv` next to `events.csv`
+unless disabled. It writes `solution.csv`, `peers.csv`, `logs.txt`, and, when
+truth is present, `compare_report.txt` and `compare_report.json`. Run only
+replay tests with:
 
 ```bash
 ctest --test-dir build -V -R replay
@@ -84,7 +89,8 @@ examples/        Future scenarios and captured log examples.
 ## Replay Fixtures
 
 - `examples/replay/radio_3d_success/events.csv`: expected final
-  `RADIO_NAV_OK`, `RADIO_3D`, source `RADIO_3D`, reject `NONE`.
+  `RADIO_NAV_OK`, `RADIO_3D`, source `RADIO_3D`, reject `NONE`; includes
+  `truth.csv` and comparison thresholds.
 - `examples/replay/reject_not_enough_anchors/events.csv`: expected final
   `NOT_ENOUGH_ANCHORS`.
 - `examples/replay/reject_missing_altitude/events.csv`: expected final
@@ -96,8 +102,10 @@ examples/        Future scenarios and captured log examples.
 
 ## Next Milestones
 
-1. Add replay config rows or a sidecar config file for threshold sweeps.
-2. Add Python-reference comparison for selected replay fixtures.
-3. Add simulator scenario loading and visualization-ready outputs.
+1. Add simulator scenario loading and deterministic `events.csv`/`truth.csv`
+   generation.
+2. Add more replay fixtures for degraded geometry, biased ranges, and stale
+   local altitude.
+3. Add visualization-ready simulator outputs.
 4. Implement full radio protocol framing with COBS, CRC32, ACKs, and timeouts.
 5. Add ESP32-S3/STM32 host adapters without platform dependencies in `core/`.

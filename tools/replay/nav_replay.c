@@ -1,6 +1,8 @@
 #include <ctype.h>
 #include <errno.h>
+#include <float.h>
 #include <limits.h>
+#include <math.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -18,6 +20,8 @@
 #define REPLAY_MAX_FIELD_LEN 96
 #define REPLAY_MAX_LINE_LEN 2048
 #define REPLAY_PATH_LEN 512
+#define REPLAY_MAX_TRUTH_ROWS 512
+#define REPLAY_EARTH_RADIUS_M 6378137.0
 
 typedef enum {
     COL_TIME_MS = 0,
@@ -71,7 +75,12 @@ typedef struct {
 typedef struct {
     const char *events_path;
     const char *out_dir;
+    const char *truth_path;
+    const char *config_path;
     uint8_t node_id;
+    bool node_id_override;
+    bool no_truth;
+    bool no_config;
     bool pretty;
 } replay_options_t;
 
@@ -81,6 +90,48 @@ typedef struct {
     unsigned events_applied;
     unsigned solutions_written;
 } replay_context_t;
+
+typedef struct {
+    uint32_t time_ms;
+    uint8_t node_id;
+    int32_t true_lat_e7;
+    int32_t true_lon_e7;
+    int32_t true_alt_mm;
+    int32_t true_vn_mmps;
+    int32_t true_ve_mmps;
+    int32_t true_vd_mmps;
+} replay_truth_row_t;
+
+typedef struct {
+    replay_truth_row_t rows[REPLAY_MAX_TRUTH_ROWS];
+    size_t count;
+} replay_truth_table_t;
+
+typedef struct {
+    bool has_expected_mode;
+    bool has_expected_solution;
+    bool has_expected_source;
+    bool has_expected_reject;
+    nav_mode_t expected_mode;
+    nav_solution_status_t expected_solution;
+    nav_solution_source_t expected_source;
+    nav_reject_reason_t expected_reject;
+    double max_allowed_horizontal_error_m;
+    double max_allowed_vertical_error_m;
+    double max_allowed_3d_error_m;
+} replay_config_extra_t;
+
+typedef struct {
+    unsigned rows_compared;
+    unsigned rows_skipped_no_truth;
+    unsigned rows_skipped_no_radio_solution;
+    double max_horizontal_error_m;
+    double sum_sq_horizontal_error_m;
+    double max_vertical_error_m;
+    double sum_sq_vertical_error_m;
+    double max_3d_error_m;
+    double sum_sq_3d_error_m;
+} replay_compare_stats_t;
 
 static const char *COLUMN_NAMES[COL_COUNT] = {
     "time_ms",
@@ -148,7 +199,7 @@ static void core_log_callback(
 
 static void usage(const char *argv0)
 {
-    fprintf(stderr, "usage: %s --events events.csv --out-dir output_dir [--node-id N] [--pretty]\n", argv0);
+    fprintf(stderr, "usage: %s --events events.csv --out-dir output_dir [--truth truth.csv] [--config replay_config.csv] [--node-id N] [--no-truth] [--no-config] [--pretty]\n", argv0);
     fprintf(stderr, "   or: %s events.csv output_dir\n", argv0);
 }
 
@@ -168,6 +219,10 @@ static bool parse_options(int argc, char **argv, replay_options_t *options)
             options->events_path = argv[++i];
         } else if (strcmp(argv[i], "--out-dir") == 0 && i + 1 < argc) {
             options->out_dir = argv[++i];
+        } else if (strcmp(argv[i], "--truth") == 0 && i + 1 < argc) {
+            options->truth_path = argv[++i];
+        } else if (strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
+            options->config_path = argv[++i];
         } else if (strcmp(argv[i], "--node-id") == 0 && i + 1 < argc) {
             char *end = NULL;
             long value = strtol(argv[++i], &end, 10);
@@ -176,6 +231,11 @@ static bool parse_options(int argc, char **argv, replay_options_t *options)
                 return false;
             }
             options->node_id = (uint8_t)value;
+            options->node_id_override = true;
+        } else if (strcmp(argv[i], "--no-truth") == 0) {
+            options->no_truth = true;
+        } else if (strcmp(argv[i], "--no-config") == 0) {
+            options->no_config = true;
         } else if (strcmp(argv[i], "--pretty") == 0) {
             options->pretty = true;
         } else {
@@ -213,6 +273,27 @@ static int mkdir_recursive(const char *path)
 static bool join_path(char *out, size_t out_len, const char *dir, const char *name)
 {
     return snprintf(out, out_len, "%s/%s", dir, name) > 0 && strlen(out) < out_len;
+}
+
+static bool file_exists(const char *path)
+{
+    struct stat st;
+    return path != NULL && stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+static bool dirname_from_path(char *out, size_t out_len, const char *path)
+{
+    const char *slash = strrchr(path, '/');
+    if (slash == NULL) {
+        return snprintf(out, out_len, ".") > 0 && strlen(out) < out_len;
+    }
+    const size_t len = (size_t)(slash - path);
+    if (len == 0u || len >= out_len) {
+        return false;
+    }
+    memcpy(out, path, len);
+    out[len] = '\0';
+    return true;
 }
 
 static char *trim(char *s)
@@ -297,6 +378,21 @@ static bool parse_i64(const char *text, int64_t min_value, int64_t max_value, in
     return true;
 }
 
+static bool parse_double_text(const char *text, double min_value, double max_value, double *out)
+{
+    if (text == NULL || *text == '\0') {
+        return false;
+    }
+    char *end = NULL;
+    errno = 0;
+    const double value = strtod(text, &end);
+    if (errno != 0 || *end != '\0' || !isfinite(value) || value < min_value || value > max_value) {
+        return false;
+    }
+    *out = value;
+    return true;
+}
+
 static bool parse_bool_text(const char *text, bool *out)
 {
     if (strcmp(text, "1") == 0 || strcmp(text, "true") == 0 || strcmp(text, "TRUE") == 0) {
@@ -358,6 +454,45 @@ static bool parse_range_fail_text(const char *text, nav_range_fail_reason_t *out
     else if (strcmp(text, "RANGING_ENGINE_ERROR") == 0) *out = NAV_RANGE_FAIL_RANGING_ENGINE_ERROR;
     else if (strcmp(text, "ABORTED") == 0) *out = NAV_RANGE_FAIL_ABORTED;
     else if (strcmp(text, "UNKNOWN") == 0) *out = NAV_RANGE_FAIL_UNKNOWN;
+    else return false;
+    return true;
+}
+
+static bool parse_solution_status_text(const char *text, nav_solution_status_t *out)
+{
+    if (strcmp(text, "NONE") == 0) *out = NAV_SOLUTION_NONE;
+    else if (strcmp(text, "GNSS_DIRECT") == 0) *out = NAV_SOLUTION_GNSS_DIRECT;
+    else if (strcmp(text, "RADIO_3D") == 0) *out = NAV_SOLUTION_RADIO_3D;
+    else if (strcmp(text, "DEGRADED") == 0) *out = NAV_SOLUTION_DEGRADED;
+    else if (strcmp(text, "REJECTED") == 0) *out = NAV_SOLUTION_REJECTED;
+    else return false;
+    return true;
+}
+
+static bool parse_solution_source_text(const char *text, nav_solution_source_t *out)
+{
+    if (strcmp(text, "NONE") == 0) *out = NAV_SOURCE_NONE;
+    else if (strcmp(text, "LOCAL_GNSS") == 0) *out = NAV_SOURCE_LOCAL_GNSS;
+    else if (strcmp(text, "RADIO_3D") == 0) *out = NAV_SOURCE_RADIO_3D;
+    else if (strcmp(text, "REPLAY") == 0) *out = NAV_SOURCE_REPLAY;
+    else if (strcmp(text, "SIM") == 0) *out = NAV_SOURCE_SIM;
+    else return false;
+    return true;
+}
+
+static bool parse_reject_reason_text(const char *text, nav_reject_reason_t *out)
+{
+    if (strcmp(text, "NONE") == 0) *out = NAV_REJECT_NONE;
+    else if (strcmp(text, "STALE_TELEMETRY") == 0) *out = NAV_REJECT_STALE_TELEMETRY;
+    else if (strcmp(text, "STALE_RANGE") == 0) *out = NAV_REJECT_STALE_RANGE;
+    else if (strcmp(text, "BAD_GNSS") == 0) *out = NAV_REJECT_BAD_GNSS;
+    else if (strcmp(text, "BAD_POSITION") == 0) *out = NAV_REJECT_BAD_POSITION;
+    else if (strcmp(text, "BAD_RANGE_SIGMA") == 0) *out = NAV_REJECT_BAD_RANGE_SIGMA;
+    else if (strcmp(text, "RANGE_OUTLIER") == 0) *out = NAV_REJECT_RANGE_OUTLIER;
+    else if (strcmp(text, "BAD_GEOMETRY") == 0) *out = NAV_REJECT_BAD_GEOMETRY;
+    else if (strcmp(text, "NOT_ENOUGH_ANCHORS") == 0) *out = NAV_REJECT_NOT_ENOUGH_ANCHORS;
+    else if (strcmp(text, "MISSING_LOCAL_ALTITUDE") == 0) *out = NAV_REJECT_MISSING_LOCAL_ALTITUDE;
+    else if (strcmp(text, "TRILATERATION_FAILED") == 0) *out = NAV_REJECT_TRILATERATION_FAILED;
     else return false;
     return true;
 }
@@ -439,6 +574,491 @@ static bool parse_header(const replay_row_t *row, replay_header_t *header)
             return false;
         }
     }
+    return true;
+}
+
+static void replay_config_extra_init(replay_config_extra_t *extra)
+{
+    memset(extra, 0, sizeof(*extra));
+    extra->max_allowed_horizontal_error_m = 1.0;
+    extra->max_allowed_vertical_error_m = 1.0;
+    extra->max_allowed_3d_error_m = 1.0;
+}
+
+static bool parse_config_u8(const char *path, unsigned line_no, const char *key, const char *value, uint8_t max_value, uint8_t *out)
+{
+    int64_t parsed = 0;
+    if (!parse_i64(value, 0, max_value, &parsed)) {
+        fprintf(stderr, "%s:%u: invalid %s: \"%s\"\n", path, line_no, key, value);
+        return false;
+    }
+    *out = (uint8_t)parsed;
+    return true;
+}
+
+static bool parse_config_u32(const char *path, unsigned line_no, const char *key, const char *value, uint32_t *out)
+{
+    int64_t parsed = 0;
+    if (!parse_i64(value, 0, UINT32_MAX, &parsed)) {
+        fprintf(stderr, "%s:%u: invalid %s: \"%s\"\n", path, line_no, key, value);
+        return false;
+    }
+    *out = (uint32_t)parsed;
+    return true;
+}
+
+static bool parse_config_float(const char *path, unsigned line_no, const char *key, const char *value, float *out)
+{
+    double parsed = 0.0;
+    if (!parse_double_text(value, -FLT_MAX, FLT_MAX, &parsed)) {
+        fprintf(stderr, "%s:%u: invalid %s: \"%s\"\n", path, line_no, key, value);
+        return false;
+    }
+    *out = (float)parsed;
+    return true;
+}
+
+static bool parse_config_double_nonnegative(const char *path, unsigned line_no, const char *key, const char *value, double *out)
+{
+    if (!parse_double_text(value, 0.0, DBL_MAX, out)) {
+        fprintf(stderr, "%s:%u: invalid %s: \"%s\"\n", path, line_no, key, value);
+        return false;
+    }
+    return true;
+}
+
+static bool parse_config_bool(const char *path, unsigned line_no, const char *key, const char *value, bool *out)
+{
+    if (!parse_bool_text(value, out)) {
+        fprintf(stderr, "%s:%u: invalid %s: \"%s\"\n", path, line_no, key, value);
+        return false;
+    }
+    return true;
+}
+
+static bool apply_config_row(
+    const char *path,
+    unsigned line_no,
+    const char *key,
+    const char *value,
+    nav_config_t *config,
+    replay_config_extra_t *extra
+)
+{
+    if (strcmp(key, "node_id") == 0) return parse_config_u8(path, line_no, key, value, NAV_MAX_NODES - 1u, &config->local_node_id);
+    if (strcmp(key, "telemetry_ttl_ms") == 0) return parse_config_u32(path, line_no, key, value, &config->telemetry_ttl_ms);
+    if (strcmp(key, "range_ttl_ms") == 0) return parse_config_u32(path, line_no, key, value, &config->range_ttl_ms);
+    if (strcmp(key, "local_altitude_ttl_ms") == 0) return parse_config_u32(path, line_no, key, value, &config->local_altitude_ttl_ms);
+    if (strcmp(key, "tick_period_ms") == 0) return parse_config_u32(path, line_no, key, value, &config->tick_period_ms);
+    if (strcmp(key, "max_range_sigma_mm") == 0) return parse_config_u32(path, line_no, key, value, &config->max_range_sigma_mm);
+    if (strcmp(key, "min_anchor_quality") == 0) return parse_config_float(path, line_no, key, value, &config->min_anchor_quality);
+    if (strcmp(key, "min_solution_quality") == 0) return parse_config_float(path, line_no, key, value, &config->min_solution_quality);
+    if (strcmp(key, "max_residual_rms_m") == 0) return parse_config_float(path, line_no, key, value, &config->max_residual_rms_m);
+    if (strcmp(key, "max_residual_m") == 0) return parse_config_float(path, line_no, key, value, &config->max_residual_m);
+    if (strcmp(key, "min_anchor_triangle_area_m2") == 0) return parse_config_float(path, line_no, key, value, &config->min_anchor_triangle_area_m2);
+    if (strcmp(key, "degraded_anchor_triangle_area_m2") == 0) return parse_config_float(path, line_no, key, value, &config->degraded_anchor_triangle_area_m2);
+    if (strcmp(key, "demo_force_gps_denied") == 0) return parse_config_bool(path, line_no, key, value, &config->demo_force_gps_denied);
+    if (strcmp(key, "allow_gnss_altitude_in_demo_forced_denied") == 0) return parse_config_bool(path, line_no, key, value, &config->allow_gnss_altitude_in_demo_forced_denied);
+    if (strcmp(key, "max_allowed_horizontal_error_m") == 0) return parse_config_double_nonnegative(path, line_no, key, value, &extra->max_allowed_horizontal_error_m);
+    if (strcmp(key, "max_allowed_vertical_error_m") == 0) return parse_config_double_nonnegative(path, line_no, key, value, &extra->max_allowed_vertical_error_m);
+    if (strcmp(key, "max_allowed_3d_error_m") == 0) return parse_config_double_nonnegative(path, line_no, key, value, &extra->max_allowed_3d_error_m);
+    if (strcmp(key, "expect_final_mode") == 0) {
+        extra->has_expected_mode = true;
+        if (!parse_nav_mode_text(value, &extra->expected_mode)) {
+            fprintf(stderr, "%s:%u: invalid expect_final_mode: \"%s\"\n", path, line_no, value);
+            return false;
+        }
+        return true;
+    }
+    if (strcmp(key, "expect_final_solution") == 0) {
+        extra->has_expected_solution = true;
+        if (!parse_solution_status_text(value, &extra->expected_solution)) {
+            fprintf(stderr, "%s:%u: invalid expect_final_solution: \"%s\"\n", path, line_no, value);
+            return false;
+        }
+        return true;
+    }
+    if (strcmp(key, "expect_final_source") == 0) {
+        extra->has_expected_source = true;
+        if (!parse_solution_source_text(value, &extra->expected_source)) {
+            fprintf(stderr, "%s:%u: invalid expect_final_source: \"%s\"\n", path, line_no, value);
+            return false;
+        }
+        return true;
+    }
+    if (strcmp(key, "expect_final_reject") == 0) {
+        extra->has_expected_reject = true;
+        if (!parse_reject_reason_text(value, &extra->expected_reject)) {
+            fprintf(stderr, "%s:%u: invalid expect_final_reject: \"%s\"\n", path, line_no, value);
+            return false;
+        }
+        return true;
+    }
+
+    fprintf(stderr, "%s:%u: unknown config key: \"%s\"\n", path, line_no, key);
+    return false;
+}
+
+static bool load_replay_config(const char *path, nav_config_t *config, replay_config_extra_t *extra)
+{
+    FILE *file = fopen(path, "r");
+    if (file == NULL) {
+        fprintf(stderr, "failed to open config file: %s\n", path);
+        return false;
+    }
+
+    char line[REPLAY_MAX_LINE_LEN];
+    unsigned line_no = 0u;
+    bool header_seen = false;
+    while (fgets(line, sizeof(line), file) != NULL) {
+        ++line_no;
+        char original[REPLAY_MAX_LINE_LEN];
+        strncpy(original, line, sizeof(original));
+        original[sizeof(original) - 1u] = '\0';
+        if (line_is_ignored(line)) {
+            continue;
+        }
+        replay_row_t row;
+        if (split_csv_line(original, &row) < 0 || row.count < 2) {
+            fprintf(stderr, "%s:%u: malformed config row\n", path, line_no);
+            fclose(file);
+            return false;
+        }
+        if (!header_seen) {
+            if (strcmp(row.fields[0], "key") != 0 || strcmp(row.fields[1], "value") != 0) {
+                fprintf(stderr, "%s:%u: expected config header: key,value\n", path, line_no);
+                fclose(file);
+                return false;
+            }
+            header_seen = true;
+            continue;
+        }
+        if (row.fields[0][0] == '\0' || row.fields[1][0] == '\0') {
+            fprintf(stderr, "%s:%u: config key and value are required\n", path, line_no);
+            fclose(file);
+            return false;
+        }
+        if (!apply_config_row(path, line_no, row.fields[0], row.fields[1], config, extra)) {
+            fclose(file);
+            return false;
+        }
+    }
+    fclose(file);
+    if (!header_seen) {
+        fprintf(stderr, "%s: missing config header row\n", path);
+        return false;
+    }
+    return true;
+}
+
+static bool parse_truth_header(const replay_row_t *row, int indexes[8])
+{
+    static const char *names[8] = {
+        "time_ms",
+        "node_id",
+        "true_lat_e7",
+        "true_lon_e7",
+        "true_alt_mm",
+        "true_vn_mmps",
+        "true_ve_mmps",
+        "true_vd_mmps",
+    };
+    for (size_t i = 0u; i < 8u; ++i) {
+        indexes[i] = -1;
+    }
+    for (int col = 0; col < row->count; ++col) {
+        for (size_t expected = 0u; expected < 8u; ++expected) {
+            if (strcmp(row->fields[col], names[expected]) == 0) {
+                indexes[expected] = col;
+            }
+        }
+    }
+    for (size_t expected = 0u; expected < 8u; ++expected) {
+        if (indexes[expected] < 0) {
+            fprintf(stderr, "truth.csv: missing header column: %s\n", names[expected]);
+            return false;
+        }
+    }
+    return true;
+}
+
+static const char *truth_field(const replay_row_t *row, const int indexes[8], size_t column)
+{
+    const int index = indexes[column];
+    if (index < 0 || index >= row->count) {
+        return "";
+    }
+    return row->fields[index];
+}
+
+static bool parse_truth_required_i64(
+    const char *path,
+    unsigned line_no,
+    const replay_row_t *row,
+    const int indexes[8],
+    size_t column,
+    int64_t min_value,
+    int64_t max_value,
+    int64_t *out
+)
+{
+    static const char *names[8] = {
+        "time_ms",
+        "node_id",
+        "true_lat_e7",
+        "true_lon_e7",
+        "true_alt_mm",
+        "true_vn_mmps",
+        "true_ve_mmps",
+        "true_vd_mmps",
+    };
+    const char *text = truth_field(row, indexes, column);
+    if (text[0] == '\0') {
+        fprintf(stderr, "%s:%u: missing required field: %s\n", path, line_no, names[column]);
+        return false;
+    }
+    if (!parse_i64(text, min_value, max_value, out)) {
+        fprintf(stderr, "%s:%u: invalid %s: \"%s\"\n", path, line_no, names[column], text);
+        return false;
+    }
+    return true;
+}
+
+static bool parse_truth_optional_i64(
+    const replay_row_t *row,
+    const int indexes[8],
+    size_t column,
+    int64_t min_value,
+    int64_t max_value,
+    int64_t default_value,
+    int64_t *out
+)
+{
+    const char *text = truth_field(row, indexes, column);
+    if (text[0] == '\0') {
+        *out = default_value;
+        return true;
+    }
+    return parse_i64(text, min_value, max_value, out);
+}
+
+static bool load_truth_csv(const char *path, replay_truth_table_t *truth)
+{
+    memset(truth, 0, sizeof(*truth));
+    FILE *file = fopen(path, "r");
+    if (file == NULL) {
+        fprintf(stderr, "failed to open truth file: %s\n", path);
+        return false;
+    }
+
+    char line[REPLAY_MAX_LINE_LEN];
+    unsigned line_no = 0u;
+    bool header_seen = false;
+    int indexes[8];
+    while (fgets(line, sizeof(line), file) != NULL) {
+        ++line_no;
+        char original[REPLAY_MAX_LINE_LEN];
+        strncpy(original, line, sizeof(original));
+        original[sizeof(original) - 1u] = '\0';
+        if (line_is_ignored(line)) {
+            continue;
+        }
+        replay_row_t row;
+        if (split_csv_line(original, &row) < 0) {
+            fprintf(stderr, "%s:%u: malformed truth CSV line\n", path, line_no);
+            fclose(file);
+            return false;
+        }
+        if (!header_seen) {
+            if (!parse_truth_header(&row, indexes)) {
+                fclose(file);
+                return false;
+            }
+            header_seen = true;
+            continue;
+        }
+        if (truth->count >= REPLAY_MAX_TRUTH_ROWS) {
+            fprintf(stderr, "%s:%u: too many truth rows\n", path, line_no);
+            fclose(file);
+            return false;
+        }
+        int64_t value = 0;
+        replay_truth_row_t *out = &truth->rows[truth->count];
+        if (!parse_truth_required_i64(path, line_no, &row, indexes, 0u, 0, UINT32_MAX, &value)) {
+            fclose(file);
+            return false;
+        }
+        out->time_ms = (uint32_t)value;
+        if (!parse_truth_required_i64(path, line_no, &row, indexes, 1u, 0, NAV_MAX_NODES - 1, &value)) {
+            fclose(file);
+            return false;
+        }
+        out->node_id = (uint8_t)value;
+        if (!parse_truth_required_i64(path, line_no, &row, indexes, 2u, INT32_MIN, INT32_MAX, &value)) {
+            fclose(file);
+            return false;
+        }
+        out->true_lat_e7 = (int32_t)value;
+        if (!parse_truth_required_i64(path, line_no, &row, indexes, 3u, INT32_MIN, INT32_MAX, &value)) {
+            fclose(file);
+            return false;
+        }
+        out->true_lon_e7 = (int32_t)value;
+        if (!position_valid_e7(out->true_lat_e7, out->true_lon_e7)) {
+            fprintf(stderr, "%s:%u: invalid truth lat/lon\n", path, line_no);
+            fclose(file);
+            return false;
+        }
+        if (!parse_truth_required_i64(path, line_no, &row, indexes, 4u, INT32_MIN, INT32_MAX, &value)) {
+            fclose(file);
+            return false;
+        }
+        out->true_alt_mm = (int32_t)value;
+        if (!parse_truth_optional_i64(&row, indexes, 5u, INT32_MIN, INT32_MAX, 0, &value)) {
+            fprintf(stderr, "%s:%u: invalid true_vn_mmps: \"%s\"\n", path, line_no, truth_field(&row, indexes, 5u));
+            fclose(file);
+            return false;
+        }
+        out->true_vn_mmps = (int32_t)value;
+        if (!parse_truth_optional_i64(&row, indexes, 6u, INT32_MIN, INT32_MAX, 0, &value)) {
+            fprintf(stderr, "%s:%u: invalid true_ve_mmps: \"%s\"\n", path, line_no, truth_field(&row, indexes, 6u));
+            fclose(file);
+            return false;
+        }
+        out->true_ve_mmps = (int32_t)value;
+        if (!parse_truth_optional_i64(&row, indexes, 7u, INT32_MIN, INT32_MAX, 0, &value)) {
+            fprintf(stderr, "%s:%u: invalid true_vd_mmps: \"%s\"\n", path, line_no, truth_field(&row, indexes, 7u));
+            fclose(file);
+            return false;
+        }
+        out->true_vd_mmps = (int32_t)value;
+        ++truth->count;
+    }
+    fclose(file);
+    if (!header_seen) {
+        fprintf(stderr, "%s: missing truth header row\n", path);
+        return false;
+    }
+    return true;
+}
+
+static const replay_truth_row_t *find_truth_row(const replay_truth_table_t *truth, uint32_t time_ms, uint8_t node_id)
+{
+    for (size_t i = 0u; i < truth->count; ++i) {
+        if (truth->rows[i].time_ms == time_ms && truth->rows[i].node_id == node_id) {
+            return &truth->rows[i];
+        }
+    }
+    return NULL;
+}
+
+static double deg_to_rad(double deg)
+{
+    return deg * 0.01745329251994329576923690768489;
+}
+
+static void compare_snapshot_with_truth(
+    const nav_snapshot_t *snapshot,
+    const replay_truth_table_t *truth,
+    replay_compare_stats_t *stats
+)
+{
+    if (snapshot->solution_status != NAV_SOLUTION_RADIO_3D || snapshot->solution_source != NAV_SOURCE_RADIO_3D) {
+        ++stats->rows_skipped_no_radio_solution;
+        return;
+    }
+    const replay_truth_row_t *truth_row = find_truth_row(truth, snapshot->time_ms, snapshot->node_id);
+    if (truth_row == NULL) {
+        ++stats->rows_skipped_no_truth;
+        return;
+    }
+
+    const double lat_deg = (double)snapshot->position.lat_e7 / 10000000.0;
+    const double lon_deg = (double)snapshot->position.lon_e7 / 10000000.0;
+    const double truth_lat_deg = (double)truth_row->true_lat_e7 / 10000000.0;
+    const double truth_lon_deg = (double)truth_row->true_lon_e7 / 10000000.0;
+    const double mean_lat_rad = deg_to_rad((lat_deg + truth_lat_deg) * 0.5);
+    const double dx_m = deg_to_rad(lon_deg - truth_lon_deg) * cos(mean_lat_rad) * REPLAY_EARTH_RADIUS_M;
+    const double dy_m = deg_to_rad(lat_deg - truth_lat_deg) * REPLAY_EARTH_RADIUS_M;
+    const double horizontal_m = sqrt(dx_m * dx_m + dy_m * dy_m);
+    const double vertical_m = fabs(((double)snapshot->position.alt_mm - (double)truth_row->true_alt_mm) / 1000.0);
+    const double error_3d_m = sqrt(horizontal_m * horizontal_m + vertical_m * vertical_m);
+
+    ++stats->rows_compared;
+    stats->sum_sq_horizontal_error_m += horizontal_m * horizontal_m;
+    stats->sum_sq_vertical_error_m += vertical_m * vertical_m;
+    stats->sum_sq_3d_error_m += error_3d_m * error_3d_m;
+    if (horizontal_m > stats->max_horizontal_error_m) stats->max_horizontal_error_m = horizontal_m;
+    if (vertical_m > stats->max_vertical_error_m) stats->max_vertical_error_m = vertical_m;
+    if (error_3d_m > stats->max_3d_error_m) stats->max_3d_error_m = error_3d_m;
+}
+
+static double rms_from_stats(double sum_sq, unsigned count)
+{
+    return count == 0u ? 0.0 : sqrt(sum_sq / (double)count);
+}
+
+static bool compare_stats_pass(const replay_compare_stats_t *stats, const replay_config_extra_t *extra)
+{
+    return stats->rows_compared > 0u &&
+           stats->max_horizontal_error_m <= extra->max_allowed_horizontal_error_m &&
+           stats->max_vertical_error_m <= extra->max_allowed_vertical_error_m &&
+           stats->max_3d_error_m <= extra->max_allowed_3d_error_m;
+}
+
+static bool write_compare_reports(
+    const char *txt_path,
+    const char *json_path,
+    const replay_compare_stats_t *stats,
+    const replay_config_extra_t *extra
+)
+{
+    const bool passed = compare_stats_pass(stats, extra);
+    const double rms_horizontal = rms_from_stats(stats->sum_sq_horizontal_error_m, stats->rows_compared);
+    const double rms_vertical = rms_from_stats(stats->sum_sq_vertical_error_m, stats->rows_compared);
+    const double rms_3d = rms_from_stats(stats->sum_sq_3d_error_m, stats->rows_compared);
+
+    FILE *txt = fopen(txt_path, "w");
+    if (txt == NULL) {
+        fprintf(stderr, "failed to open compare report: %s\n", txt_path);
+        return false;
+    }
+    fprintf(txt, "rows_compared=%u\n", stats->rows_compared);
+    fprintf(txt, "rows_skipped_no_truth=%u\n", stats->rows_skipped_no_truth);
+    fprintf(txt, "rows_skipped_no_radio_solution=%u\n", stats->rows_skipped_no_radio_solution);
+    fprintf(txt, "max_horizontal_error_m=%.6f\n", stats->max_horizontal_error_m);
+    fprintf(txt, "rms_horizontal_error_m=%.6f\n", rms_horizontal);
+    fprintf(txt, "max_vertical_error_m=%.6f\n", stats->max_vertical_error_m);
+    fprintf(txt, "rms_vertical_error_m=%.6f\n", rms_vertical);
+    fprintf(txt, "max_3d_error_m=%.6f\n", stats->max_3d_error_m);
+    fprintf(txt, "rms_3d_error_m=%.6f\n", rms_3d);
+    fprintf(txt, "max_allowed_horizontal_error_m=%.6f\n", extra->max_allowed_horizontal_error_m);
+    fprintf(txt, "max_allowed_vertical_error_m=%.6f\n", extra->max_allowed_vertical_error_m);
+    fprintf(txt, "max_allowed_3d_error_m=%.6f\n", extra->max_allowed_3d_error_m);
+    fprintf(txt, "pass=%s\n", passed ? "true" : "false");
+    fclose(txt);
+
+    FILE *json = fopen(json_path, "w");
+    if (json == NULL) {
+        fprintf(stderr, "failed to open compare report: %s\n", json_path);
+        return false;
+    }
+    fprintf(json, "{\n");
+    fprintf(json, "  \"rows_compared\": %u,\n", stats->rows_compared);
+    fprintf(json, "  \"rows_skipped_no_truth\": %u,\n", stats->rows_skipped_no_truth);
+    fprintf(json, "  \"rows_skipped_no_radio_solution\": %u,\n", stats->rows_skipped_no_radio_solution);
+    fprintf(json, "  \"max_horizontal_error_m\": %.9f,\n", stats->max_horizontal_error_m);
+    fprintf(json, "  \"rms_horizontal_error_m\": %.9f,\n", rms_horizontal);
+    fprintf(json, "  \"max_vertical_error_m\": %.9f,\n", stats->max_vertical_error_m);
+    fprintf(json, "  \"rms_vertical_error_m\": %.9f,\n", rms_vertical);
+    fprintf(json, "  \"max_3d_error_m\": %.9f,\n", stats->max_3d_error_m);
+    fprintf(json, "  \"rms_3d_error_m\": %.9f,\n", rms_3d);
+    fprintf(json, "  \"max_allowed_horizontal_error_m\": %.9f,\n", extra->max_allowed_horizontal_error_m);
+    fprintf(json, "  \"max_allowed_vertical_error_m\": %.9f,\n", extra->max_allowed_vertical_error_m);
+    fprintf(json, "  \"max_allowed_3d_error_m\": %.9f,\n", extra->max_allowed_3d_error_m);
+    fprintf(json, "  \"pass\": %s\n", passed ? "true" : "false");
+    fprintf(json, "}\n");
+    fclose(json);
     return true;
 }
 
@@ -727,7 +1347,15 @@ static void write_peers_rows(FILE *out, const nav_system_t *sys, uint32_t now_ms
     }
 }
 
-static bool emit_outputs(FILE *solution, FILE *peers, const nav_system_t *sys, uint32_t now_ms, replay_context_t *ctx)
+static bool emit_outputs(
+    FILE *solution,
+    FILE *peers,
+    const nav_system_t *sys,
+    uint32_t now_ms,
+    replay_context_t *ctx,
+    const replay_truth_table_t *truth,
+    replay_compare_stats_t *compare_stats
+)
 {
     nav_snapshot_t snapshot;
     if (!nav_core_get_snapshot(sys, &snapshot)) {
@@ -735,8 +1363,45 @@ static bool emit_outputs(FILE *solution, FILE *peers, const nav_system_t *sys, u
     }
     write_solution_row(solution, &snapshot);
     write_peers_rows(peers, sys, now_ms);
+    if (truth != NULL && compare_stats != NULL) {
+        compare_snapshot_with_truth(&snapshot, truth, compare_stats);
+    }
     ++ctx->solutions_written;
     return true;
+}
+
+static bool validate_expected_final(
+    const replay_config_extra_t *extra,
+    const nav_snapshot_t *snapshot,
+    FILE *logs
+)
+{
+    bool ok = true;
+    if (extra->has_expected_mode && snapshot->nav_mode != extra->expected_mode) {
+        fprintf(stderr, "expected final mode %s, got %s\n", nav_mode_to_string(extra->expected_mode), nav_mode_to_string(snapshot->nav_mode));
+        log_line(logs, "t=%lu level=ERROR cat=REPLAY event=expected_final_mismatch field=mode expected=%s actual=%s",
+                 (unsigned long)snapshot->time_ms, nav_mode_to_string(extra->expected_mode), nav_mode_to_string(snapshot->nav_mode));
+        ok = false;
+    }
+    if (extra->has_expected_solution && snapshot->solution_status != extra->expected_solution) {
+        fprintf(stderr, "expected final solution %s, got %s\n", nav_solution_status_to_string(extra->expected_solution), nav_solution_status_to_string(snapshot->solution_status));
+        log_line(logs, "t=%lu level=ERROR cat=REPLAY event=expected_final_mismatch field=solution expected=%s actual=%s",
+                 (unsigned long)snapshot->time_ms, nav_solution_status_to_string(extra->expected_solution), nav_solution_status_to_string(snapshot->solution_status));
+        ok = false;
+    }
+    if (extra->has_expected_source && snapshot->solution_source != extra->expected_source) {
+        fprintf(stderr, "expected final source %s, got %s\n", nav_solution_source_to_string(extra->expected_source), nav_solution_source_to_string(snapshot->solution_source));
+        log_line(logs, "t=%lu level=ERROR cat=REPLAY event=expected_final_mismatch field=source expected=%s actual=%s",
+                 (unsigned long)snapshot->time_ms, nav_solution_source_to_string(extra->expected_source), nav_solution_source_to_string(snapshot->solution_source));
+        ok = false;
+    }
+    if (extra->has_expected_reject && snapshot->reject_reason != extra->expected_reject) {
+        fprintf(stderr, "expected final reject %s, got %s\n", nav_reject_reason_to_string(extra->expected_reject), nav_reject_reason_to_string(snapshot->reject_reason));
+        log_line(logs, "t=%lu level=ERROR cat=REPLAY event=expected_final_mismatch field=reject expected=%s actual=%s",
+                 (unsigned long)snapshot->time_ms, nav_reject_reason_to_string(extra->expected_reject), nav_reject_reason_to_string(snapshot->reject_reason));
+        ok = false;
+    }
+    return ok;
 }
 
 static int replay_file(const replay_options_t *options)
@@ -749,11 +1414,39 @@ static int replay_file(const replay_options_t *options)
     char solution_path[REPLAY_PATH_LEN];
     char peers_path[REPLAY_PATH_LEN];
     char logs_path[REPLAY_PATH_LEN];
+    char compare_txt_path[REPLAY_PATH_LEN];
+    char compare_json_path[REPLAY_PATH_LEN];
     if (!join_path(solution_path, sizeof(solution_path), options->out_dir, "solution.csv") ||
         !join_path(peers_path, sizeof(peers_path), options->out_dir, "peers.csv") ||
-        !join_path(logs_path, sizeof(logs_path), options->out_dir, "logs.txt")) {
+        !join_path(logs_path, sizeof(logs_path), options->out_dir, "logs.txt") ||
+        !join_path(compare_txt_path, sizeof(compare_txt_path), options->out_dir, "compare_report.txt") ||
+        !join_path(compare_json_path, sizeof(compare_json_path), options->out_dir, "compare_report.json")) {
         fprintf(stderr, "output path too long\n");
         return 2;
+    }
+
+    char fixture_dir[REPLAY_PATH_LEN];
+    char auto_config_path[REPLAY_PATH_LEN];
+    char auto_truth_path[REPLAY_PATH_LEN];
+    const char *config_path = NULL;
+    const char *truth_path = NULL;
+    if (!dirname_from_path(fixture_dir, sizeof(fixture_dir), options->events_path)) {
+        fprintf(stderr, "events path too long\n");
+        return 2;
+    }
+    if (!options->no_config) {
+        if (options->config_path != NULL) {
+            config_path = options->config_path;
+        } else if (join_path(auto_config_path, sizeof(auto_config_path), fixture_dir, "replay_config.csv") && file_exists(auto_config_path)) {
+            config_path = auto_config_path;
+        }
+    }
+    if (!options->no_truth) {
+        if (options->truth_path != NULL) {
+            truth_path = options->truth_path;
+        } else if (join_path(auto_truth_path, sizeof(auto_truth_path), fixture_dir, "truth.csv") && file_exists(auto_truth_path)) {
+            truth_path = auto_truth_path;
+        }
     }
 
     FILE *events = fopen(options->events_path, "r");
@@ -773,13 +1466,45 @@ static int replay_file(const replay_options_t *options)
         return 2;
     }
 
-    replay_context_t ctx = {.logs = logs};
-    log_line(logs, "t=0 level=INFO cat=REPLAY event=replay_start events=%s out_dir=%s node_id=%u", options->events_path, options->out_dir, options->node_id);
-
     nav_config_t config = nav_config_default(options->node_id);
     config.demo_force_gps_denied = true;
     config.min_anchor_triangle_area_m2 = 10.0f;
     config.degraded_anchor_triangle_area_m2 = 100.0f;
+    replay_config_extra_t replay_extra;
+    replay_config_extra_init(&replay_extra);
+    if (config_path != NULL && !load_replay_config(config_path, &config, &replay_extra)) {
+        fclose(events);
+        fclose(solution);
+        fclose(peers);
+        fclose(logs);
+        return 1;
+    }
+    if (options->node_id_override) {
+        config.local_node_id = options->node_id;
+    }
+
+    replay_truth_table_t truth;
+    replay_truth_table_t *truth_ptr = NULL;
+    if (truth_path != NULL) {
+        if (!load_truth_csv(truth_path, &truth)) {
+            fclose(events);
+            fclose(solution);
+            fclose(peers);
+            fclose(logs);
+            return 1;
+        }
+        truth_ptr = &truth;
+    }
+
+    replay_context_t ctx = {.logs = logs};
+    log_line(logs, "t=0 level=INFO cat=REPLAY event=replay_start events=%s out_dir=%s node_id=%u config=%s truth=%s",
+             options->events_path,
+             options->out_dir,
+             config.local_node_id,
+             config_path == NULL ? "NONE" : config_path,
+             truth_path == NULL ? "NONE" : truth_path);
+
+    replay_compare_stats_t compare_stats = {0};
     nav_system_t sys;
     nav_core_init(&sys, &config);
     nav_logger_t logger;
@@ -845,7 +1570,7 @@ static int replay_file(const replay_options_t *options)
         }
         ++ctx.events_applied;
         log_line(logs, "t=%lu level=INFO cat=REPLAY event=event_applied line=%u event_type=%s", (unsigned long)event.timestamp_ms, line_no, field(&header, &row, COL_EVENT_TYPE));
-        if (!emit_outputs(solution, peers, &sys, event.timestamp_ms, &ctx)) {
+        if (!emit_outputs(solution, peers, &sys, event.timestamp_ms, &ctx, truth_ptr, &compare_stats)) {
             status = 1;
             break;
         }
@@ -860,6 +1585,37 @@ static int replay_file(const replay_options_t *options)
 
     nav_snapshot_t final_snapshot;
     (void)nav_core_get_snapshot(&sys, &final_snapshot);
+    bool compare_passed = true;
+    if (truth_ptr != NULL) {
+        if (!write_compare_reports(compare_txt_path, compare_json_path, &compare_stats, &replay_extra)) {
+            status = 1;
+            compare_passed = false;
+        } else {
+            compare_passed = compare_stats_pass(&compare_stats, &replay_extra);
+            log_line(
+                logs,
+                "t=%lu level=%s cat=REPLAY event=truth_compare rows_compared=%u rows_skipped_no_truth=%u rows_skipped_no_radio_solution=%u max_horizontal_error_m=%.6f max_vertical_error_m=%.6f max_3d_error_m=%.6f pass=%u",
+                (unsigned long)final_snapshot.time_ms,
+                compare_passed ? "INFO" : "ERROR",
+                compare_stats.rows_compared,
+                compare_stats.rows_skipped_no_truth,
+                compare_stats.rows_skipped_no_radio_solution,
+                compare_stats.max_horizontal_error_m,
+                compare_stats.max_vertical_error_m,
+                compare_stats.max_3d_error_m,
+                compare_passed ? 1u : 0u
+            );
+            if (!compare_passed) {
+                fprintf(stderr, "truth comparison failed; see %s\n", compare_txt_path);
+                status = 1;
+            }
+        }
+    } else {
+        log_line(logs, "t=%lu level=INFO cat=REPLAY event=truth_compare skipped=1 reason=NO_TRUTH", (unsigned long)final_snapshot.time_ms);
+    }
+    if (!validate_expected_final(&replay_extra, &final_snapshot, logs)) {
+        status = 1;
+    }
     log_line(
         logs,
         "t=%lu level=INFO cat=REPLAY event=replay_summary events_read=%u events_applied=%u solutions_written=%u final_mode=%s final_solution=%s final_source=%s final_reject=%s",
@@ -881,10 +1637,21 @@ static int replay_file(const replay_options_t *options)
     printf("  final_solution=%s\n", nav_solution_status_to_string(final_snapshot.solution_status));
     printf("  final_source=%s\n", nav_solution_source_to_string(final_snapshot.solution_source));
     printf("  final_reject=%s\n", nav_reject_reason_to_string(final_snapshot.reject_reason));
+    if (truth_ptr != NULL) {
+        printf("  truth_rows=%lu\n", (unsigned long)truth_ptr->count);
+        printf("  rows_compared=%u\n", compare_stats.rows_compared);
+        printf("  truth_compare=%s\n", compare_passed ? "PASS" : "FAIL");
+    } else {
+        printf("  truth_compare=SKIPPED\n");
+    }
     if (options->pretty) {
         printf("  solution_csv=%s\n", solution_path);
         printf("  peers_csv=%s\n", peers_path);
         printf("  logs_txt=%s\n", logs_path);
+        if (truth_ptr != NULL) {
+            printf("  compare_report_txt=%s\n", compare_txt_path);
+            printf("  compare_report_json=%s\n", compare_json_path);
+        }
     }
 
     fclose(events);

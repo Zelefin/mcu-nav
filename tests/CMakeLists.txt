@@ -32,14 +32,21 @@ function(add_replay_fixture_test name fixture expect_mode expect_solution expect
     )
 endfunction()
 
-add_replay_fixture_test(
-    replay_radio_3d_success
-    radio_3d_success
-    RADIO_NAV_OK
-    RADIO_3D
-    RADIO_3D
-    NONE
-    3
+add_test(
+    NAME replay_radio_3d_success
+    COMMAND ${CMAKE_COMMAND}
+        -DREPLAY_EXE=$<TARGET_FILE:nav_replay>
+        -DWORK_DIR=${CMAKE_SOURCE_DIR}
+        -DEVENTS=${CMAKE_SOURCE_DIR}/examples/replay/radio_3d_success/events.csv
+        -DOUT_DIR=${CMAKE_BINARY_DIR}/replay/radio_3d_success
+        -DEXPECT_MODE=RADIO_NAV_OK
+        -DEXPECT_SOLUTION=RADIO_3D
+        -DEXPECT_SOURCE=RADIO_3D
+        -DEXPECT_REJECT=NONE
+        -DEXPECT_ANCHORS=3
+        -DMAX_RMS=0.01
+        -DEXPECT_COMPARE_REPORT=1
+        -P ${CMAKE_SOURCE_DIR}/tests/check_replay.cmake
 )
 
 add_replay_fixture_test(
@@ -112,3 +119,6 @@ add_replay_invalid_test(replay_parser_negative_range parser_invalid_negative_ran
 add_replay_invalid_test(replay_parser_invalid_enum parser_invalid_enum "invalid nav_mode")
 add_replay_invalid_test(replay_parser_missing_field parser_invalid_missing_field "missing required field: range_mm")
 add_replay_invalid_test(replay_parser_malformed_integer parser_invalid_integer "invalid time_ms")
+add_replay_invalid_test(replay_parser_invalid_config_unknown_key parser_invalid_config_unknown_key "unknown config key")
+add_replay_invalid_test(replay_parser_invalid_config_bad_value parser_invalid_config_bad_value "invalid node_id")
+add_replay_invalid_test(replay_parser_invalid_truth_bad_value parser_invalid_truth_bad_value "invalid true_lat_e7")

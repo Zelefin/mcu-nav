@@ -47,6 +47,10 @@ math.
   expected outputs; document behavior changes in the fixture or test.
 - Keep replay deterministic. Do not add random motion, packet loss, or simulator
   behavior to `nav_replay`.
+- Keep `events.csv`, `replay_config.csv`, `truth.csv`, and expected compare
+  reports synchronized when changing replay behavior.
+- `truth.csv` is comparison input, not simulator logic. Do not make replay
+  generate truth or random scenarios.
 - Do not remove logs unless replacing them with better structured logs.
 - Keep `docs/radio_protocol.md` synchronized with public protocol enums and
   payload structs. It is a future cross-repo contract with the radio firmware
