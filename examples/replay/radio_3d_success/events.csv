@@ -1,0 +1,10 @@
+# Expected final result: RADIO_NAV_OK, RADIO_3D, source RADIO_3D, reject NONE.
+time_ms,event_type,node_id,peer_id,packet_seq,request_id,lat_e7,lon_e7,alt_mm,vel_n_mmps,vel_e_mmps,vel_d_mmps,fix_type,gnss_valid,satellites,hdop_centi,hacc_mm,vacc_mm,nav_mode,range_mm,range_sigma_mm,rssi_dbm,snr_db,range_valid,alt_source,alt_valid,range_fail_reason
+1000,LOCAL_ALTITUDE_SAMPLE,,,,,,,183500,,,,,,,,,,,,,,,,SIM,1,
+1000,PEER_BEACON_RX,,1,101,,504501000,305234000,180000,0,0,0,3D,1,12,80,1000,1500,GNSS_OK,,,-60,10,,,,
+1000,RANGE_RESULT,,1,,201,,,,,,,,,,,,,,394135,100,-60,10,1,,,
+1000,PEER_BEACON_RX,,2,102,,504565000,305201000,190000,0,0,0,3D,1,12,80,1000,1500,GNSS_OK,,,-60,10,,,,
+1000,RANGE_RESULT,,2,,202,,,,,,,,,,,,,,621957,100,-60,10,1,,,
+1000,PEER_BEACON_RX,,3,103,,504510000,305340000,175000,0,0,0,3D,1,12,80,1000,1500,GNSS_OK,,,-60,10,,,,
+1000,RANGE_RESULT,,3,,203,,,,,,,,,,,,,,553391,100,-60,10,1,,,
+1000,TICK,,,,,,,,,,,,,,,,,,,,,,,,,
