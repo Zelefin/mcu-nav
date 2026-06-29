@@ -20,8 +20,9 @@ flowchart LR
 ```
 
 The replay runner consumes fixed event rows. It does not generate motion,
-random packet loss, noisy ranges, or scenarios. A later simulator will generate
-`events.csv`; replay only consumes it.
+random packet loss, noisy ranges, or scenarios. `tools/sim/generate_scenario.py`
+generates `events.csv`, `truth.csv`, and `replay_config.csv`; replay only
+consumes them.
 
 ## Command
 
@@ -189,8 +190,9 @@ Rules:
 - Malformed rows are rejected with line-numbered errors.
 - Matching uses exact `(time_ms,node_id)` rows only. There is no interpolation.
 
-Truth is comparison input. Replay does not generate truth; the future simulator
-may generate both `events.csv` and `truth.csv`.
+Truth is comparison input. Replay does not generate truth. The deterministic
+scenario generator writes truth for the local/blind node so replay can compare
+exact `(time_ms,node_id)` radio solution rows.
 
 ## Output: compare_report.txt/json
 
@@ -242,6 +244,23 @@ Rejection fixtures may end with aggregate final reject reasons such as
 `NOT_ENOUGH_ANCHORS` while the root cause for a specific peer is visible in
 `peers.csv` or `logs.txt`, for example `STALE_RANGE` or `BAD_POSITION`.
 
+## Generated Scenarios
+
+Committed scenario definitions live under `examples/scenarios/`. Generate replay
+inputs with:
+
+```bash
+python tools/sim/generate_scenario.py \
+  --scenario examples/scenarios/static_anchors_success.json \
+  --out-dir build/generated/static_anchors_success \
+  --overwrite \
+  --pretty
+```
+
+Generated outputs are intentionally kept under `build/generated/` and are not
+committed. Use `--run-replay ./build/tools/replay/nav_replay` to run the
+existing replay runner immediately after generation.
+
 ## Adding A Fixture
 
 1. Create `examples/replay/<name>/events.csv`.
@@ -285,4 +304,5 @@ changes and reviewed with the same care as core logic changes.
 - No quoted or multiline CSV fields.
 - No normalized `events_out.csv` yet.
 - No interpolation for `truth.csv`.
-- No simulator behavior; replay consumes events only.
+- No simulator behavior in replay; scenario generation belongs under
+  `tools/sim/`.

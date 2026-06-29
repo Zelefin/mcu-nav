@@ -24,8 +24,12 @@ radio firmware, real GNSS drivers, a full simulator, or flight-controller output
 - Replay CLI consumes deterministic `events.csv` fixtures and writes
   `solution.csv`, `peers.csv`, `logs.txt`, and optional truth comparison
   reports for regression/debug.
-- Full simulator, plotting, real hardware ports, radio firmware, and
-  FC/MAVLink output remain future work.
+- Deterministic scenario generator produces `events.csv`, `truth.csv`, and
+  `replay_config.csv` from JSON scenario files.
+- Plotting tool generates replay diagnostics PNGs from `truth.csv`,
+  `solution.csv`, `peers.csv`, and `compare_report.json`.
+- Real hardware ports, radio firmware, GNSS parser, and FC/MAVLink output remain
+  future work.
 
 ## Build And Test
 
@@ -62,6 +66,31 @@ replay tests with:
 ctest --test-dir build -V -R replay
 ```
 
+Generate, replay, and plot a deterministic software scenario:
+
+```bash
+python tools/sim/generate_scenario.py \
+  --scenario examples/scenarios/static_anchors_success.json \
+  --out-dir build/generated/static_anchors_success \
+  --run-replay ./build/tools/replay/nav_replay \
+  --overwrite \
+  --pretty
+
+python tools/plot/plot_replay.py \
+  --truth build/generated/static_anchors_success/truth.csv \
+  --solution build/generated/static_anchors_success/replay/solution.csv \
+  --peers build/generated/static_anchors_success/replay/peers.csv \
+  --compare-report build/generated/static_anchors_success/replay/compare_report.json \
+  --out-dir build/generated/static_anchors_success/plots \
+  --pretty
+```
+
+The plot tool requires matplotlib:
+
+```bash
+python -m pip install matplotlib
+```
+
 ## Repository Structure
 
 ```text
@@ -69,10 +98,12 @@ core/            Portable C11 navigation core and public headers.
 ports/           Platform adapters. Only POSIX demo exists now.
 docs/            Architecture, data model, logging, replay, and protocol docs.
 tools/replay/    Deterministic CSV replay runner.
-tools/           Future simulator and plot tools.
+tools/sim/       Deterministic scenario-to-replay-input generator.
+tools/plot/      Replay-output PNG diagnostics.
 tests/           Host C tests for implemented core modules.
 examples/replay/ Deterministic replay fixtures.
-examples/        Future scenarios and captured log examples.
+examples/scenarios/ Committed deterministic scenario definitions.
+examples/        Captured log examples and scenario/replay fixtures.
 ```
 
 ## Read First
@@ -102,10 +133,10 @@ examples/        Future scenarios and captured log examples.
 
 ## Next Milestones
 
-1. Add simulator scenario loading and deterministic `events.csv`/`truth.csv`
-   generation.
+1. Expand scenario coverage for degraded geometry, bad altitude, and longer
+   moving-anchor runs.
 2. Add more replay fixtures for degraded geometry, biased ranges, and stale
    local altitude.
-3. Add visualization-ready simulator outputs.
+3. Add richer plot diagnostics and machine-readable plot summaries.
 4. Implement full radio protocol framing with COBS, CRC32, ACKs, and timeouts.
 5. Add ESP32-S3/STM32 host adapters without platform dependencies in `core/`.

@@ -1,4 +1,41 @@
-# Scenario Examples Placeholder
+# Scenario Examples
 
-Future deterministic simulator scenarios will live here. Keep scenarios small
-enough for tests and replay debugging.
+These JSON files are deterministic simulator inputs for
+`tools/sim/generate_scenario.py`. The generator writes replay inputs under
+`build/generated/...`; generated CSV and PNG outputs are not committed.
+
+Run one full pipeline:
+
+```bash
+python tools/sim/generate_scenario.py \
+  --scenario examples/scenarios/static_anchors_success.json \
+  --out-dir build/generated/static_anchors_success \
+  --run-replay ./build/tools/replay/nav_replay \
+  --overwrite \
+  --pretty
+
+python tools/plot/plot_replay.py \
+  --truth build/generated/static_anchors_success/truth.csv \
+  --solution build/generated/static_anchors_success/replay/solution.csv \
+  --peers build/generated/static_anchors_success/replay/peers.csv \
+  --compare-report build/generated/static_anchors_success/replay/compare_report.json \
+  --out-dir build/generated/static_anchors_success/plots \
+  --pretty
+```
+
+Committed examples:
+
+- `static_anchors_success.json`: fixed anchors and fixed blind node, perfect
+  ranges, expected low-error `RADIO_3D`.
+- `moving_blind_success.json`: fixed anchors and a slowly moving blind node,
+  expected low-error `RADIO_3D`.
+- `moving_anchors_success.json`: moving GPS-good anchors and a moving blind
+  node, expected low-error `RADIO_3D`.
+- `noisy_ranges_success.json`: seeded low-amplitude range noise with relaxed
+  thresholds, expected deterministic `RADIO_3D`.
+- `biased_range_degraded_or_rejected.json`: one biased peer range; current use is
+  diagnostic, with relaxed comparison thresholds because the estimate can be
+  wrong even when the core accepts a solve.
+- `packet_loss_rejection.json`: early valid solves followed by deterministic
+  range drops, expected final `NOT_ENOUGH_ANCHORS`.
+- `invalid_missing_nodes.json`: negative fixture for generator validation.

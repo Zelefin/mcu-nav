@@ -96,6 +96,40 @@ the `max_allowed_*_error_m` thresholds in `replay_config.csv`. Rows without
 `RADIO_3D` source are counted as `rows_skipped_no_radio_solution`; radio
 solutions without exact truth timestamps are counted as `rows_skipped_no_truth`.
 
+## How Do I Debug A Generated Scenario?
+
+Generate with `--pretty` and inspect `scenario_resolved.json` first. It contains
+the parsed defaults, node ids, local origin, range model, packet-loss rules, and
+replay config that produced the CSV files.
+
+Then run the generated files through replay:
+
+```bash
+python tools/sim/generate_scenario.py \
+  --scenario examples/scenarios/static_anchors_success.json \
+  --out-dir build/generated/static_anchors_success \
+  --run-replay ./build/tools/replay/nav_replay \
+  --overwrite \
+  --pretty
+```
+
+If replay passes but the trajectory looks suspicious, generate plots from replay
+outputs:
+
+```bash
+python tools/plot/plot_replay.py \
+  --truth build/generated/static_anchors_success/truth.csv \
+  --solution build/generated/static_anchors_success/replay/solution.csv \
+  --peers build/generated/static_anchors_success/replay/peers.csv \
+  --compare-report build/generated/static_anchors_success/replay/compare_report.json \
+  --out-dir build/generated/static_anchors_success/plots \
+  --pretty
+```
+
+Use `trajectory_xy.png` for geometry mistakes, `horizontal_error.png` and
+`altitude_error.png` for truth mismatch, `residuals.png` for inconsistent
+ranges, and `solution_quality.png` for acceptance/quality trends.
+
 ## Radio Failure Vs Navigation Rejection
 
 `range_fail_reason` explains why the radio/ranging attempt failed, such as
@@ -129,3 +163,7 @@ not use an anchor or solution, such as `STALE_RANGE` or `BAD_POSITION`.
 - `replay_parser_*`: malformed replay input is rejected with nonzero exit.
 - `replay_parser_invalid_config_*`: malformed `replay_config.csv` is rejected.
 - `replay_parser_invalid_truth_*`: malformed `truth.csv` is rejected.
+- `scenario_validate_*`: committed scenario JSON files generate replay inputs.
+- `scenario_replay_*`: generated success scenarios pass through `nav_replay`.
+- `scenario_invalid_*`: malformed scenario JSON fails before CSV generation.
+- `plot_static_anchors_success`: generated replay outputs produce PNG plots.

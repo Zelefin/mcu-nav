@@ -29,9 +29,18 @@
 
 ## Milestone 4: Simulator
 
-- Scenario format and generator.
-- Noisy/bad measurements and packet loss.
-- Visualization-ready CSV outputs.
+- Done: JSON scenario format and deterministic generator under `tools/sim/`.
+- Done: generated `events.csv`, `truth.csv`, `replay_config.csv`, and
+  `scenario_resolved.json`.
+- Done: optional generator `--run-replay` path that invokes existing
+  `nav_replay` and writes outputs under `replay/`.
+- Done: deterministic seeded range noise, static range bias, explicit packet
+  drops, fixed/moving blind nodes, and slow moving anchors.
+- Done: plotting tool under `tools/plot/` that creates PNG diagnostics from
+  replay outputs.
+- Future: richer scenario validation, longer moving-anchor cases, overdetermined
+  anchor sets after the core supports them, plot summaries, and broader
+  degraded-geometry fixtures.
 
 ## Milestone 5: Hardware Host Ports
 

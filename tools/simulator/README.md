@@ -1,6 +1,11 @@
-# Simulator Tool Placeholder
+# Simulator Compatibility Note
 
-Future simulator for four-node scenarios with configurable GNSS truth, telemetry,
-ranges, packet loss, noise, bias, outliers, and bad geometry.
+The implemented deterministic scenario generator lives in `tools/sim/`.
 
-See [scenario_format.md](scenario_format.md) and `docs/simulation.md`.
+Use:
+
+```bash
+python tools/sim/generate_scenario.py --help
+```
+
+This directory remains only as a pointer from the earlier placeholder name.

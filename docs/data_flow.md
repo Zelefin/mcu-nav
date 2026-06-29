@@ -110,6 +110,36 @@ Parser errors include the input line number and return a nonzero exit code.
 When `truth.csv` exists, replay compares exact `(time_ms,node_id)` solution rows
 against truth and writes comparison reports. It does not interpolate.
 
+## Simulation And Plot Flow
+
+The simulator layer is outside `core/` and outside `nav_replay`. It generates
+deterministic replay inputs, then the existing replay runner remains the path
+that drives the navigation core for offline scenario results.
+
+```mermaid
+flowchart LR
+    SCN[scenario.json] --> GEN[generate_scenario.py]
+    GEN --> EVT[events.csv]
+    GEN --> TRUTH[truth.csv]
+    GEN --> CFG[replay_config.csv]
+    EVT --> REPLAY[nav_replay]
+    CFG --> REPLAY
+    TRUTH --> REPLAY
+    REPLAY --> SOL[solution.csv]
+    REPLAY --> PEERS[peers.csv]
+    REPLAY --> REPORT[compare_report]
+    SOL --> PLOT[plot_replay.py]
+    PEERS --> PLOT
+    TRUTH --> PLOT
+    REPORT --> PLOT
+    PLOT --> PNG[diagnostic PNGs]
+```
+
+`generate_scenario.py` writes `events.csv`, `truth.csv`,
+`replay_config.csv`, and `scenario_resolved.json`. Optional seeded range noise
+and packet drops are deterministic. `plot_replay.py` reads only replay-visible
+files: `truth.csv`, `solution.csv`, `peers.csv`, and `compare_report.json`.
+
 ## Replay Event Sequence
 
 ```mermaid

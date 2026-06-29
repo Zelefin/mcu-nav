@@ -47,6 +47,10 @@ math.
   expected outputs; document behavior changes in the fixture or test.
 - Keep replay deterministic. Do not add random motion, packet loss, or simulator
   behavior to `nav_replay`.
+- Keep simulator behavior under `tools/sim/`; it must generate replay input
+  files instead of bypassing replay.
+- Keep plotting under `tools/plot/` and generate plots from replay outputs, not
+  private simulator state.
 - Keep `events.csv`, `replay_config.csv`, `truth.csv`, and expected compare
   reports synchronized when changing replay behavior.
 - `truth.csv` is comparison input, not simulator logic. Do not make replay

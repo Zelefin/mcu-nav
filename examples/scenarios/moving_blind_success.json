@@ -1,0 +1,61 @@
+{
+  "scenario_name": "moving_blind_success",
+  "local_node_id": 0,
+  "start_time_ms": 1000,
+  "end_time_ms": 5000,
+  "step_ms": 1000,
+  "origin_lat_e7": 504529000,
+  "origin_lon_e7": 305268000,
+  "origin_alt_mm": 183500,
+  "nodes": [
+    {
+      "node_id": 0,
+      "role": "blind",
+      "initial_position": {"lat_e7": 504529000, "lon_e7": 305268000, "alt_mm": 183500},
+      "velocity": {"north_mmps": 1200, "east_mmps": 700, "down_mmps": 0},
+      "gnss_valid": false,
+      "nav_mode": "DEMO_FORCED_DENIED"
+    },
+    {
+      "node_id": 1,
+      "role": "anchor",
+      "initial_position": {"lat_e7": 504560441, "lon_e7": 305218620, "alt_mm": 180000},
+      "velocity": {"north_mmps": 0, "east_mmps": 0, "down_mmps": 0},
+      "gnss_valid": true,
+      "nav_mode": "GNSS_OK"
+    },
+    {
+      "node_id": 2,
+      "role": "anchor",
+      "initial_position": {"lat_e7": 504566729, "lon_e7": 305327256, "alt_mm": 190000},
+      "velocity": {"north_mmps": 0, "east_mmps": 0, "down_mmps": 0},
+      "gnss_valid": true,
+      "nav_mode": "GNSS_OK"
+    },
+    {
+      "node_id": 3,
+      "role": "anchor",
+      "initial_position": {"lat_e7": 504491271, "lon_e7": 305284930, "alt_mm": 175000},
+      "velocity": {"north_mmps": 0, "east_mmps": 0, "down_mmps": 0},
+      "gnss_valid": true,
+      "nav_mode": "GNSS_OK"
+    }
+  ],
+  "range_model": {
+    "enabled": true,
+    "noise_std_m": 0.0,
+    "bias_by_peer_m": {"1": 0.0, "2": 0.0, "3": 0.0},
+    "seed": 12346,
+    "range_sigma_mm": 100
+  },
+  "packet_loss": {"mode": "none"},
+  "replay_config": {
+    "max_allowed_horizontal_error_m": 2.0,
+    "max_allowed_vertical_error_m": 1.0,
+    "max_allowed_3d_error_m": 2.0,
+    "expect_final_mode": "RADIO_NAV_OK",
+    "expect_final_solution": "RADIO_3D",
+    "expect_final_source": "RADIO_3D",
+    "expect_final_reject": "NONE"
+  }
+}
