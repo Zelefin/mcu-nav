@@ -4,7 +4,7 @@ Portable navigation-brain firmware for a group UAV navigation system.
 
 This repository owns the main MCU navigation core, host tests, diagnostics,
 documentation, and future host ports. It does not implement the ESP8285/SX1280
-radio firmware, real GNSS drivers, a full simulator, or flight-controller output.
+radio firmware, real GNSS hardware drivers, or flight-controller output.
 
 ## Current Status
 
@@ -28,8 +28,10 @@ radio firmware, real GNSS drivers, a full simulator, or flight-controller output
   `replay_config.csv` from JSON scenario files.
 - Plotting tool generates replay diagnostics PNGs from `truth.csv`,
   `solution.csv`, `peers.csv`, and `compare_report.json`.
-- Real hardware ports, radio firmware, GNSS parser, and FC/MAVLink output remain
-  future work.
+- Portable NMEA parser converts `$GPGGA`/`$GNGGA` and `$GPRMC`/`$GNRMC` byte
+  streams into `nav_gnss_sample_t` for `NAV_EVT_LOCAL_GNSS_SAMPLE`.
+- Real hardware ports, UART drivers, radio firmware, UBX parsing, and
+  FC/MAVLink output remain future work.
 
 ## Build And Test
 
@@ -91,6 +93,12 @@ The plot tool requires matplotlib:
 python -m pip install -r requirements-dev.txt
 ```
 
+Inspect a GNSS NMEA text log with the host dump tool:
+
+```bash
+./build/tools/gnss/nav_nmea_dump examples/gnss/valid_gga_rmc.nmea
+```
+
 ## Repository Structure
 
 ```text
@@ -98,10 +106,12 @@ core/            Portable C11 navigation core and public headers.
 ports/           Platform adapters. Only POSIX demo exists now.
 docs/            Architecture, data model, logging, replay, and protocol docs.
 tools/replay/    Deterministic CSV replay runner.
+tools/gnss/      Host NMEA log dump tool using the portable parser.
 tools/sim/       Deterministic scenario-to-replay-input generator.
 tools/plot/      Replay-output PNG diagnostics.
 tests/           Host C tests for implemented core modules.
 examples/replay/ Deterministic replay fixtures.
+examples/gnss/   Small NMEA parser fixtures.
 examples/scenarios/ Committed deterministic scenario definitions.
 examples/        Captured log examples and scenario/replay fixtures.
 ```
@@ -113,6 +123,7 @@ examples/        Captured log examples and scenario/replay fixtures.
 - [Data model](docs/data_model.md)
 - [State machine](docs/state_machine.md)
 - [Logging](docs/logging.md)
+- [GNSS NMEA](docs/gnss_nmea.md)
 - [Debug playbook](docs/debug_playbook.md)
 - [Radio protocol](docs/radio_protocol.md)
 - [Replay CSV](docs/replay_csv.md)
@@ -133,10 +144,7 @@ examples/        Captured log examples and scenario/replay fixtures.
 
 ## Next Milestones
 
-1. Expand scenario coverage for degraded geometry, bad altitude, and longer
-   moving-anchor runs.
-2. Add more replay fixtures for degraded geometry, biased ranges, and stale
-   local altitude.
-3. Expand plot diagnostics beyond PNGs and `plot_summary.json`.
-4. Implement full radio protocol framing with COBS, CRC32, ACKs, and timeouts.
-5. Add ESP32-S3/STM32 host adapters without platform dependencies in `core/`.
+1. Add a platform UART adapter that stamps parsed NMEA samples with system time.
+2. Add ESP32-S3/STM32 host adapters without platform dependencies in `core/`.
+3. Implement full radio protocol framing with COBS, CRC32, ACKs, and timeouts.
+4. Expand plot diagnostics beyond PNGs and `plot_summary.json`.

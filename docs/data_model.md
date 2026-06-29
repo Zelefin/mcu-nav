@@ -11,6 +11,12 @@ The local node id is `nav_config_t.local_node_id`. Local GNSS is stored in
 `nav_system_t.local_gnss`. In `DEMO_FORCED_DENIED`, local GNSS position is
 logged/debugged but not used as the navigation solution.
 
+`nav_gnss_sample_t` is also the output type for the portable NMEA parser. GGA
+sentences provide position, altitude, fix quality, satellite count, and HDOP.
+RMC sentences provide validity and position; velocity remains zero for now.
+Parser output uses `timestamp_ms = 0` until an adapter stamps it with
+system/replay time.
+
 `nav_system_t` is public for static allocation, but the portable core owns its
 contents. Normal application code should inject events and read snapshots rather
 than mutating local GNSS, altitude, peer table, mode, or snapshot fields.

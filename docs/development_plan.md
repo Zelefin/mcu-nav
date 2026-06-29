@@ -44,7 +44,20 @@
 - Future: longer moving-anchor cases, overdetermined anchor sets after the core
   supports them, and richer plot summaries.
 
-## Milestone 5: Hardware Host Ports
+## Milestone 5: GNSS/NMEA Parser
+
+- Done: portable byte-by-byte NMEA parser under `core/`.
+- Done: checksum validation, fixed sentence buffer, no dynamic allocation, and
+  support for `$GPGGA`/`$GNGGA` plus `$GPRMC`/`$GNRMC`.
+- Done: parser output maps to `nav_gnss_sample_t` and can be injected through
+  `NAV_EVT_LOCAL_GNSS_SAMPLE`.
+- Done: host tests cover valid/invalid fixes, malformed input, checksum errors,
+  stream recovery, overlong sentences, direct GNSS solution, and forced-denied
+  behavior.
+- Future: platform UART adapters, UTC/PPS time handling, UBX parsing if needed,
+  and velocity derivation from RMC.
+
+## Milestone 6: Hardware Host Ports
 
 - ESP32-S3 host adapter.
 - STM32 host adapter.

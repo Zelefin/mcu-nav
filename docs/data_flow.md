@@ -21,6 +21,24 @@ sequenceDiagram
 `NAV_EVT_PEER_TELEMETRY_RX` carries `nav_peer_beacon_rx_t`: peer telemetry from
 the remote node plus local receive metadata (`rssi_dbm`, `snr_db`).
 
+## Local GNSS NMEA Update
+
+Future UART ports feed bytes into the portable NMEA parser and wrap emitted
+samples as normal core events. The parser does not own the UART or clock; the
+adapter stamps `timestamp_ms` with local system/replay time before injection.
+
+```mermaid
+flowchart LR
+    UART[GNSS UART / NMEA log] --> PARSER[nav_nmea_parser_push]
+    PARSER --> SAMPLE[nav_gnss_sample_t]
+    SAMPLE --> EVENT[NAV_EVT_LOCAL_GNSS_SAMPLE]
+    EVENT --> CORE[nav_core]
+    CORE --> SNAP[nav_snapshot_t]
+```
+
+When `demo_force_gps_denied` is true, the core stores/logs local GNSS samples
+but does not use them as `NAV_SOURCE_LOCAL_GNSS`.
+
 ## Range Update
 
 ```mermaid

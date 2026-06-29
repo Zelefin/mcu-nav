@@ -14,6 +14,9 @@ math.
 - Keep `core/` portable C11.
 - Do not add ESP-IDF, STM32 HAL, Arduino, FreeRTOS, POSIX, UART driver, or board
   dependencies to `core/`.
+- Portable parsers in `core/`, such as the NMEA parser, must remain byte-stream
+  adapters with fixed buffers and no file I/O, dynamic allocation, or platform
+  APIs.
 - Put platform-specific code under `ports/`.
 - Do not implement ESP8285/SX1280 radio firmware in this repository.
 - Do not start flight-controller integration here; keep only future output
@@ -32,6 +35,8 @@ math.
 - Use the `nav_` prefix for public symbols.
 - Validate pointers in public functions where reasonable.
 - Keep behavior deterministic and tests replayable.
+- Treat NMEA timestamps as external adapter time: stamp parsed GNSS samples with
+  system/replay `timestamp_ms` before injecting `NAV_EVT_LOCAL_GNSS_SAMPLE`.
 - Do not hide important behavior behind vague abstractions.
 - Keep functions small and readable; avoid clever macros.
 

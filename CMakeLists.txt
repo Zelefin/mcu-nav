@@ -17,6 +17,7 @@ add_library(nav_core STATIC
     core/src/nav_logging.c
     core/src/nav_radio_protocol.c
     core/src/nav_gnss.c
+    core/src/nav_nmea.c
     core/src/nav_replay.c
 )
 
@@ -30,4 +31,5 @@ endif()
 enable_testing()
 add_subdirectory(ports/posix)
 add_subdirectory(tools/replay)
+add_subdirectory(tools/gnss)
 add_subdirectory(tests)

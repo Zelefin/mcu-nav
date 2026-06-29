@@ -79,6 +79,24 @@ the final `solution_status` should be `RADIO_3D` or `REJECTED`, not
 In replay, check `solution.csv` column `solution_source`. The success fixture
 must end with `RADIO_3D`, not `LOCAL_GNSS`.
 
+## How Do I Debug NMEA Parsing?
+
+Run the host dump tool on a small log:
+
+```bash
+./build/tools/gnss/nav_nmea_dump examples/gnss/valid_gga_rmc.nmea
+./build/tools/gnss/nav_nmea_dump examples/gnss/mixed_noise.nmea
+```
+
+`CHECKSUM_ERROR` means the sentence `*HH` value did not match the payload XOR.
+`MALFORMED_SENTENCE` means a supported sentence had missing or invalid required
+fields. `UNSUPPORTED_SENTENCE` means the checksum was valid but the parser does
+not implement that sentence type.
+
+Parsed samples have `timestamp_ms=0` until the caller stamps them with the local
+system/replay time. In forced-denied mode, a valid parsed GNSS sample should
+still not produce `solution_source=LOCAL_GNSS`.
+
 ## How Do I Debug A Failed Replay?
 
 1. Confirm `nav_replay` exited nonzero only for malformed input.
@@ -176,3 +194,5 @@ not use an anchor or solution, such as `STALE_RANGE` or `BAD_POSITION`.
 - `scenario_replay_*`: generated success scenarios pass through `nav_replay`.
 - `scenario_invalid_*`: malformed scenario JSON fails before CSV generation.
 - `plot_*`: generated replay outputs produce PNG plots and `plot_summary.json`.
+- `test_nmea_parser`: byte-by-byte NMEA parsing, checksum rejection, malformed
+  input, stream recovery, core GNSS event injection, and forced-denied handling.
