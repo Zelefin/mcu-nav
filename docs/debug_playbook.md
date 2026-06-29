@@ -129,6 +129,15 @@ python tools/plot/plot_replay.py \
 Use `trajectory_xy.png` for geometry mistakes, `horizontal_error.png` and
 `altitude_error.png` for truth mismatch, `residuals.png` for inconsistent
 ranges, and `solution_quality.png` for acceptance/quality trends.
+`plot_summary.json` contains row counts, comparable error metrics, residual
+maxima, and final solution/reject fields for scripts.
+
+For intermittent scenarios, error plots include only comparable `RADIO_3D` rows.
+The trajectory plot splits estimated segments across long solution gaps so a
+missing solution interval is not drawn as continuous navigation. Inspect
+`rows_radio_solution`, `rows_skipped_no_radio_solution`, `peers.csv`, and
+`logs.txt` to separate aggregate final reject reasons from root causes such as
+`STALE_RANGE`, `BAD_GEOMETRY`, or `MISSING_LOCAL_ALTITUDE`.
 
 ## Radio Failure Vs Navigation Rejection
 
@@ -166,4 +175,4 @@ not use an anchor or solution, such as `STALE_RANGE` or `BAD_POSITION`.
 - `scenario_validate_*`: committed scenario JSON files generate replay inputs.
 - `scenario_replay_*`: generated success scenarios pass through `nav_replay`.
 - `scenario_invalid_*`: malformed scenario JSON fails before CSV generation.
-- `plot_static_anchors_success`: generated replay outputs produce PNG plots.
+- `plot_*`: generated replay outputs produce PNG plots and `plot_summary.json`.

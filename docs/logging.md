@@ -96,5 +96,6 @@ t=1000 level=INFO cat=RANGE event=range_update peer=2 request_id=77 range_mm=621
 - `truth.csv`: optional replay input for exact-time comparison.
 - `compare_report.txt` / `compare_report.json`: emitted when truth is present.
 
-`truth.csv` is not produced by replay. The future simulator may generate it.
-See `docs/replay_csv.md` for exact replay schemas.
+`truth.csv` is not produced by replay. `tools/sim/generate_scenario.py` may
+generate it as comparison input. See `docs/replay_csv.md` for exact replay
+schemas.

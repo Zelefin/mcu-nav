@@ -38,9 +38,11 @@
   drops, fixed/moving blind nodes, and slow moving anchors.
 - Done: plotting tool under `tools/plot/` that creates PNG diagnostics from
   replay outputs.
-- Future: richer scenario validation, longer moving-anchor cases, overdetermined
-  anchor sets after the core supports them, plot summaries, and broader
-  degraded-geometry fixtures.
+- Done: edge-case scenarios for degraded geometry, stale altitude, intermittent
+  recovery, and forced-denied local GNSS debug.
+- Done: plot summaries in `plot_summary.json`.
+- Future: longer moving-anchor cases, overdetermined anchor sets after the core
+  supports them, and richer plot summaries.
 
 ## Milestone 5: Hardware Host Ports
 

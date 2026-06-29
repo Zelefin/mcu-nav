@@ -1,0 +1,24 @@
+{
+  "scenario_name": "invalid_duplicate_node_id",
+  "local_node_id": 0,
+  "start_time_ms": 1000,
+  "end_time_ms": 1000,
+  "step_ms": 1000,
+  "origin_lat_e7": 504529000,
+  "origin_lon_e7": 305268000,
+  "origin_alt_mm": 183500,
+  "nodes": [
+    {
+      "node_id": 0,
+      "role": "blind",
+      "initial_position": {"lat_e7": 504529000, "lon_e7": 305268000, "alt_mm": 183500},
+      "velocity": {"north_mmps": 0, "east_mmps": 0, "down_mmps": 0}
+    },
+    {
+      "node_id": 0,
+      "role": "anchor",
+      "initial_position": {"lat_e7": 504560441, "lon_e7": 305218620, "alt_mm": 180000},
+      "velocity": {"north_mmps": 0, "east_mmps": 0, "down_mmps": 0}
+    }
+  ]
+}

@@ -133,6 +133,13 @@ def optional_number(obj: dict[str, Any], key: str, path: str, default: float) ->
     return float(value)
 
 
+def optional_int(obj: dict[str, Any], key: str, path: str, default: int) -> int:
+    value = obj.get(key, default)
+    if not isinstance(value, int) or isinstance(value, bool):
+        fail(f"{path}.{key}", "expected integer")
+    return value
+
+
 def optional_bool(obj: dict[str, Any], key: str, path: str, default: bool) -> bool:
     value = obj.get(key, default)
     if not isinstance(value, bool):
@@ -256,6 +263,18 @@ def normalize_scenario(raw: dict[str, Any]) -> dict[str, Any]:
     if len(anchors) < 1:
         fail("scenario.nodes", "at least one anchor is required")
 
+    local_altitude = require_mapping(raw.get("local_altitude", {"mode": "every_step"}), "scenario.local_altitude")
+    local_altitude_mode = optional_string(local_altitude, "mode", "scenario.local_altitude", "every_step")
+    if local_altitude_mode not in {"every_step", "once", "explicit", "none"}:
+        fail("scenario.local_altitude.mode", "expected every_step, once, explicit, or none")
+    local_altitude_times_ms = []
+    for i, value in enumerate(require_list(local_altitude.get("times_ms", []), "scenario.local_altitude.times_ms")):
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            fail(f"scenario.local_altitude.times_ms[{i}]", "expected non-negative integer")
+        local_altitude_times_ms.append(value)
+    if local_altitude_mode == "explicit" and not local_altitude_times_ms:
+        fail("scenario.local_altitude.times_ms", "explicit mode requires at least one time")
+
     range_model = require_mapping(raw.get("range_model", {}), "scenario.range_model")
     noise_std_m = optional_number(range_model, "noise_std_m", "scenario.range_model", 0.0)
     if noise_std_m < 0.0:
@@ -265,6 +284,11 @@ def normalize_scenario(raw: dict[str, Any]) -> dict[str, Any]:
     for peer, value in bias_raw.items():
         if not str(peer).isdigit():
             fail("scenario.range_model.bias_by_peer_m", "peer keys must be numeric strings")
+        peer_id = int(str(peer))
+        if peer_id < 0 or peer_id > 3:
+            fail(f"scenario.range_model.bias_by_peer_m.{peer}", "peer id must be 0..3")
+        if peer_id not in {anchor["node_id"] for anchor in anchors}:
+            fail(f"scenario.range_model.bias_by_peer_m.{peer}", "peer id must refer to an anchor node")
         if not isinstance(value, (int, float)) or isinstance(value, bool):
             fail(f"scenario.range_model.bias_by_peer_m.{peer}", "expected number")
         bias_by_peer_m[str(peer)] = float(value)
@@ -279,6 +303,11 @@ def normalize_scenario(raw: dict[str, Any]) -> dict[str, Any]:
     packet_loss_mode = optional_string(packet_loss, "mode", "scenario.packet_loss", "none")
     if packet_loss_mode not in {"none", "drop_every_n", "explicit"}:
         fail("scenario.packet_loss.mode", "expected none, drop_every_n, or explicit")
+    drop_every_n = optional_int(packet_loss, "drop_every_n", "scenario.packet_loss", 0)
+    if packet_loss_mode == "drop_every_n" and drop_every_n <= 0:
+        fail("scenario.packet_loss.drop_every_n", "drop_every_n mode requires a positive integer")
+    if drop_every_n < 0:
+        fail("scenario.packet_loss.drop_every_n", "expected >= 0")
     explicit_drops = []
     for i, drop_raw in enumerate(require_list(packet_loss.get("explicit_drops", []), "scenario.packet_loss.explicit_drops")):
         drop = require_mapping(drop_raw, f"scenario.packet_loss.explicit_drops[{i}]")
@@ -318,6 +347,11 @@ def normalize_scenario(raw: dict[str, Any]) -> dict[str, Any]:
         **replay_config,
     }
     replay_config["node_id"] = local_node_id
+    if (
+        (replay_config.get("expect_final_solution") == "RADIO_3D" or replay_config.get("expect_final_source") == "RADIO_3D")
+        and len(anchors) < 3
+    ):
+        fail("scenario.nodes", "at least three anchors are required when expecting RADIO_3D")
 
     return {
         "scenario_name": scenario_name,
@@ -329,6 +363,10 @@ def normalize_scenario(raw: dict[str, Any]) -> dict[str, Any]:
         "origin_lon_e7": origin["lon_e7"],
         "origin_alt_mm": origin["alt_mm"],
         "nodes": nodes,
+        "local_altitude": {
+            "mode": local_altitude_mode,
+            "times_ms": local_altitude_times_ms,
+        },
         "range_model": {
             "enabled": optional_bool(range_model, "enabled", "scenario.range_model", True),
             "noise_std_m": noise_std_m,
@@ -338,12 +376,24 @@ def normalize_scenario(raw: dict[str, Any]) -> dict[str, Any]:
         },
         "packet_loss": {
             "mode": packet_loss_mode,
-            "drop_every_n": int(optional_number(packet_loss, "drop_every_n", "scenario.packet_loss", 0.0)),
+            "drop_every_n": drop_every_n,
             "explicit_drops": explicit_drops,
         },
         "replay_config": replay_config,
         "output_dir": raw.get("output_dir", ""),
     }
+
+
+def should_emit_local_altitude(scenario: dict[str, Any], time_ms: int) -> bool:
+    local_altitude = scenario["local_altitude"]
+    mode = local_altitude["mode"]
+    if mode == "every_step":
+        return True
+    if mode == "once":
+        return time_ms == scenario["start_time_ms"]
+    if mode == "explicit":
+        return time_ms in set(local_altitude["times_ms"])
+    return False
 
 
 def position_at(node: dict[str, Any], scenario: dict[str, Any], time_ms: int) -> dict[str, Any]:
@@ -415,9 +465,10 @@ def generate_rows(scenario: dict[str, Any]) -> tuple[list[dict[str, Any]], list[
         )
 
         events.append(blank_event(time_ms, "TICK"))
-        alt_row = blank_event(time_ms, "LOCAL_ALTITUDE_SAMPLE")
-        alt_row.update({"alt_mm": local_pos["alt_mm"], "alt_source": "SIM", "alt_valid": 1})
-        events.append(alt_row)
+        if should_emit_local_altitude(scenario, time_ms):
+            alt_row = blank_event(time_ms, "LOCAL_ALTITUDE_SAMPLE")
+            alt_row.update({"alt_mm": local_pos["alt_mm"], "alt_source": "SIM", "alt_valid": 1})
+            events.append(alt_row)
 
         if local["emit_local_gnss"]:
             row = blank_event(time_ms, "LOCAL_GNSS_SAMPLE")

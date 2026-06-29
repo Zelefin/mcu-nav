@@ -261,6 +261,22 @@ Generated outputs are intentionally kept under `build/generated/` and are not
 committed. Use `--run-replay ./build/tools/replay/nav_replay` to run the
 existing replay runner immediately after generation.
 
+After replay, generate diagnostics with:
+
+```bash
+python tools/plot/plot_replay.py \
+  --truth build/generated/static_anchors_success/truth.csv \
+  --solution build/generated/static_anchors_success/replay/solution.csv \
+  --peers build/generated/static_anchors_success/replay/peers.csv \
+  --compare-report build/generated/static_anchors_success/replay/compare_report.json \
+  --out-dir build/generated/static_anchors_success/plots \
+  --pretty
+```
+
+The plotter writes five PNGs plus `plot_summary.json`. Intermittent solutions
+are represented by `rows_radio_solution` and skipped-row counters in the summary;
+error plots use only comparable `RADIO_3D` rows.
+
 ## Adding A Fixture
 
 1. Create `examples/replay/<name>/events.csv`.

@@ -12,6 +12,7 @@ rejected because `nav_replay` rejects them too.
   inclusive.
 - `origin_lat_e7`, `origin_lon_e7`, `origin_alt_mm`: local reference point.
 - `nodes`: array of one blind node and one or more anchor nodes.
+- `local_altitude`: optional local altitude emission settings.
 - `range_model`: optional range generation settings.
 - `packet_loss`: optional deterministic drop settings.
 - `replay_config`: optional replay thresholds and expected final status.
@@ -54,6 +55,26 @@ Optional node diagnostics default to replay-friendly values:
 - `emit_local_gnss`: default `false`; when true, local GNSS samples are emitted
   but forced-denied replay still must not use them as the solution source.
 
+## Local Altitude
+
+The generator emits `LOCAL_ALTITUDE_SAMPLE` rows from the blind/local node.
+
+```json
+{
+  "mode": "every_step",
+  "times_ms": []
+}
+```
+
+Supported modes:
+
+- `every_step`: emit one altitude sample at each generated time step.
+- `once`: emit only at `start_time_ms`, useful for TTL expiry tests.
+- `explicit`: emit only at times listed in `times_ms`.
+- `none`: emit no local altitude samples.
+
+The emitted altitude source is `SIM`.
+
 ## Range Model
 
 ```json
@@ -90,6 +111,8 @@ Example:
 ```
 
 `event_type` may be `RANGE_RESULT` or `PEER_BEACON_RX`.
+`drop_every_n` mode requires a positive integer `drop_every_n`. Range bias peer
+ids must refer to anchor node ids.
 
 ## Replay Config
 
@@ -112,13 +135,16 @@ Defaults are radio-navigation oriented: local node id from the scenario,
 `demo_force_gps_denied=true`, TTLs of `1500 ms`, and `1.0 m` truth comparison
 limits.
 
+If `expect_final_solution` or `expect_final_source` is `RADIO_3D`, the scenario
+must define at least three anchors.
+
 ## Generated Event Order
 
 For each time step, rows are emitted deterministically:
 
 ```text
 TICK
-LOCAL_ALTITUDE_SAMPLE
+optional LOCAL_ALTITUDE_SAMPLE
 optional LOCAL_GNSS_SAMPLE
 PEER_BEACON_RX for each anchor by peer id
 RANGE_RESULT for each anchor by peer id unless dropped

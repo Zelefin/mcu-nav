@@ -135,10 +135,12 @@ flowchart LR
     PLOT --> PNG[diagnostic PNGs]
 ```
 
-`generate_scenario.py` writes `events.csv`, `truth.csv`,
-`replay_config.csv`, and `scenario_resolved.json`. Optional seeded range noise
-and packet drops are deterministic. `plot_replay.py` reads only replay-visible
-files: `truth.csv`, `solution.csv`, `peers.csv`, and `compare_report.json`.
+`tools/sim/generate_scenario.py` writes `events.csv`, `truth.csv`,
+`replay_config.csv`, and `scenario_resolved.json`. Optional seeded range noise,
+explicit packet drops, and local-altitude cadence are deterministic.
+`tools/plot/plot_replay.py` reads only replay-visible files: `truth.csv`,
+`solution.csv`, `peers.csv`, and `compare_report.json`. It writes diagnostic
+PNGs plus `plot_summary.json`.
 
 ## Replay Event Sequence
 

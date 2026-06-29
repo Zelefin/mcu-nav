@@ -88,7 +88,7 @@ python tools/plot/plot_replay.py \
 The plot tool requires matplotlib:
 
 ```bash
-python -m pip install matplotlib
+python -m pip install -r requirements-dev.txt
 ```
 
 ## Repository Structure
@@ -137,6 +137,6 @@ examples/        Captured log examples and scenario/replay fixtures.
    moving-anchor runs.
 2. Add more replay fixtures for degraded geometry, biased ranges, and stale
    local altitude.
-3. Add richer plot diagnostics and machine-readable plot summaries.
+3. Expand plot diagnostics beyond PNGs and `plot_summary.json`.
 4. Implement full radio protocol framing with COBS, CRC32, ACKs, and timeouts.
 5. Add ESP32-S3/STM32 host adapters without platform dependencies in `core/`.

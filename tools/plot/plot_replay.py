@@ -17,7 +17,10 @@ try:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 except Exception as exc:  # noqa: BLE001 - CLI should report dependency failures clearly.
-    print("PLOT_ERROR: failed to import matplotlib; install with `python -m pip install matplotlib`", file=sys.stderr)
+    print(
+        "PLOT_ERROR: failed to import matplotlib; install with `python -m pip install -r requirements-dev.txt`",
+        file=sys.stderr,
+    )
     raise SystemExit(2) from exc
 
 
@@ -68,6 +71,37 @@ def radio_solution_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     return [row for row in rows if row.get("solution_status") == "RADIO_3D" and row.get("solution_source") == "RADIO_3D"]
 
 
+def truth_step_ms(truth: list[dict[str, str]]) -> int | None:
+    times = sorted({to_int(row, "time_ms") for row in truth})
+    deltas = [b - a for a, b in zip(times, times[1:]) if b > a]
+    if not deltas:
+        return None
+    return sorted(deltas)[len(deltas) // 2]
+
+
+def split_solution_segments(
+    solutions: list[dict[str, str]],
+    truth: list[dict[str, str]],
+) -> list[list[dict[str, str]]]:
+    step_ms = truth_step_ms(truth)
+    if step_ms is None:
+        return [solutions] if solutions else []
+    max_gap_ms = int(step_ms * 1.5)
+    segments: list[list[dict[str, str]]] = []
+    current: list[dict[str, str]] = []
+    previous_time: int | None = None
+    for row in solutions:
+        time_ms = to_int(row, "time_ms")
+        if previous_time is not None and time_ms - previous_time > max_gap_ms and current:
+            segments.append(current)
+            current = []
+        current.append(row)
+        previous_time = time_ms
+    if current:
+        segments.append(current)
+    return segments
+
+
 def save_or_empty(path: Path, title: str, message: str) -> None:
     plt.figure(figsize=(8, 4.5))
     plt.title(title)
@@ -83,15 +117,16 @@ def plot_trajectory(path: Path, truth: list[dict[str, str]], solutions: list[dic
     ref_lat = to_int(ref, "true_lat_e7")
     ref_lon = to_int(ref, "true_lon_e7")
     truth_xy = [xy_m(to_int(row, "true_lat_e7"), to_int(row, "true_lon_e7"), ref_lat, ref_lon) for row in truth]
-    sol_xy = [xy_m(to_int(row, "lat_e7"), to_int(row, "lon_e7"), ref_lat, ref_lon) for row in solutions]
     latest_peer: dict[int, dict[str, str]] = {}
     for row in peers:
         latest_peer[to_int(row, "peer_id")] = row
 
     plt.figure(figsize=(7, 7))
     plt.plot([p[0] for p in truth_xy], [p[1] for p in truth_xy], "-o", label="truth")
-    if sol_xy:
-        plt.plot([p[0] for p in sol_xy], [p[1] for p in sol_xy], ".-", label="RADIO_3D estimate")
+    for index, segment in enumerate(split_solution_segments(solutions, truth)):
+        sol_xy = [xy_m(to_int(row, "lat_e7"), to_int(row, "lon_e7"), ref_lat, ref_lon) for row in segment]
+        label = "RADIO_3D estimate" if index == 0 else None
+        plt.plot([p[0] for p in sol_xy], [p[1] for p in sol_xy], ".-", label=label)
     if latest_peer:
         anchor_xy = [xy_m(to_int(row, "lat_e7"), to_int(row, "lon_e7"), ref_lat, ref_lon) for row in latest_peer.values()]
         plt.scatter([p[0] for p in anchor_xy], [p[1] for p in anchor_xy], marker="^", label="anchors")
@@ -123,6 +158,75 @@ def error_series(solutions: list[dict[str, str]], truth_map: dict[int, dict[str,
         horizontal.append(math.hypot(sx, sy))
         vertical.append((to_int(row, "alt_mm") - to_int(truth, "true_alt_mm")) / 1000.0)
     return times, horizontal, vertical
+
+
+def error_metrics(horizontal: list[float], vertical_signed: list[float]) -> dict[str, float | None]:
+    if not horizontal:
+        return {
+            "max_horizontal_error_m": None,
+            "rms_horizontal_error_m": None,
+            "max_vertical_error_m": None,
+            "rms_vertical_error_m": None,
+            "max_3d_error_m": None,
+            "rms_3d_error_m": None,
+        }
+    vertical_abs = [abs(value) for value in vertical_signed]
+    error_3d = [math.hypot(h, v) for h, v in zip(horizontal, vertical_abs)]
+    return {
+        "max_horizontal_error_m": max(horizontal),
+        "rms_horizontal_error_m": math.sqrt(sum(value * value for value in horizontal) / len(horizontal)),
+        "max_vertical_error_m": max(vertical_abs),
+        "rms_vertical_error_m": math.sqrt(sum(value * value for value in vertical_abs) / len(vertical_abs)),
+        "max_3d_error_m": max(error_3d),
+        "rms_3d_error_m": math.sqrt(sum(value * value for value in error_3d) / len(error_3d)),
+    }
+
+
+def residual_summary(solutions: list[dict[str, str]]) -> tuple[float | None, float | None]:
+    if not solutions:
+        return None, None
+    max_rms = max(to_float(row, "residual_rms_m") for row in solutions)
+    residuals = []
+    for row in solutions:
+        for index in range(3):
+            residuals.append(abs(to_int(row, f"residual{index}_mm") / 1000.0))
+    return max_rms, max(residuals) if residuals else None
+
+
+def final_field(rows: list[dict[str, str]], key: str) -> str | None:
+    if not rows:
+        return None
+    return rows[-1].get(key, "") or None
+
+
+def write_plot_summary(
+    path: Path,
+    truth: list[dict[str, str]],
+    solution: list[dict[str, str]],
+    radio: list[dict[str, str]],
+    compare_report: dict[str, Any],
+    horizontal: list[float],
+    vertical: list[float],
+) -> None:
+    metrics = error_metrics(horizontal, vertical)
+    max_residual_rms_m, max_abs_residual_m = residual_summary(radio)
+    summary = {
+        "rows_truth": len(truth),
+        "rows_solution": len(solution),
+        "rows_radio_solution": len(radio),
+        "rows_compared": len(horizontal),
+        "rows_skipped_no_truth": compare_report.get("rows_skipped_no_truth"),
+        "rows_skipped_no_radio_solution": compare_report.get("rows_skipped_no_radio_solution"),
+        **metrics,
+        "max_residual_rms_m": max_residual_rms_m,
+        "max_abs_residual_m": max_abs_residual_m,
+        "final_solution_status": final_field(solution, "solution_status"),
+        "final_solution_source": final_field(solution, "solution_source"),
+        "final_reject_reason": final_field(solution, "reject_reason"),
+    }
+    with path.open("w") as f:
+        json.dump(summary, f, indent=2, sort_keys=True)
+        f.write("\n")
 
 
 def plot_line(path: Path, title: str, xlabel: str, ylabel: str, series: list[tuple[list[int], list[float], str]]) -> None:
@@ -181,7 +285,7 @@ def main() -> int:
         peers = read_csv(args.peers)
         require_file(args.compare_report, "compare report")
         with args.compare_report.open() as f:
-            json.load(f)
+            compare_report = json.load(f)
         if not truth:
             raise PlotError(f"truth has no rows: {args.truth}")
         args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -192,6 +296,7 @@ def main() -> int:
             save_or_empty(args.out_dir / "altitude_error.png", "Altitude Error", "No RADIO_3D solution rows")
             save_or_empty(args.out_dir / "residuals.png", "Anchor Residuals", "No RADIO_3D solution rows")
             save_or_empty(args.out_dir / "solution_quality.png", "Solution Quality", "No RADIO_3D solution rows")
+            times, horizontal, vertical = [], [], []
         else:
             plot_trajectory(args.out_dir / "trajectory_xy.png", truth, radio, peers)
             times, horizontal, vertical = error_series(radio, truth_by_time(truth))
@@ -199,13 +304,14 @@ def main() -> int:
             plot_line(args.out_dir / "altitude_error.png", "Altitude Error", "time (ms)", "estimate - truth (m)", [(times, vertical, "vertical")])
             plot_residuals(args.out_dir / "residuals.png", radio)
             plot_quality(args.out_dir / "solution_quality.png", radio)
+        write_plot_summary(args.out_dir / "plot_summary.json", truth, solution, radio, compare_report, horizontal, vertical)
     except (OSError, ValueError, PlotError) as exc:
         print(f"PLOT_ERROR: {exc}", file=sys.stderr)
         return 2
 
     if args.pretty:
         print("plots generated:")
-        for name in ["trajectory_xy.png", "horizontal_error.png", "altitude_error.png", "residuals.png", "solution_quality.png"]:
+        for name in ["trajectory_xy.png", "horizontal_error.png", "altitude_error.png", "residuals.png", "solution_quality.png", "plot_summary.json"]:
             print(f"  {args.out_dir / name}")
     return 0
 

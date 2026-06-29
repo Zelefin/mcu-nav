@@ -1,6 +1,7 @@
 # Simulation
 
-The simulator will exercise the portable core without hardware.
+The canonical deterministic simulator path is `tools/sim/`. It generates replay
+inputs and never bypasses `nav_replay`.
 
 ## Baseline Scenario
 
@@ -8,7 +9,10 @@ The simulator will exercise the portable core without hardware.
 - Three GPS-good anchors.
 - One GPS-denied node.
 - Target altitude is known from barometer or flight controller stand-in.
-- Output streams: `events.csv`, `peers.csv`, `solution.csv`, and `truth.csv`.
+- Generator outputs: `events.csv`, `truth.csv`, `replay_config.csv`, and
+  `scenario_resolved.json`.
+- Replay outputs: `solution.csv`, `peers.csv`, `logs.txt`, and
+  `compare_report.txt/json`.
 
 ## Scenario Types
 
@@ -24,10 +28,17 @@ The simulator will exercise the portable core without hardware.
 
 ## Visualization Outputs
 
-The simulator should produce CSVs suitable for plotting:
+`tools/plot/plot_replay.py` reads replay outputs and writes:
 
-- true vs estimated trajectory
-- range residuals per anchor
-- anchor quality over time
-- accepted/rejected solution markers
-- state machine timeline
+- `trajectory_xy.png`
+- `horizontal_error.png`
+- `altitude_error.png`
+- `residuals.png`
+- `solution_quality.png`
+- `plot_summary.json`
+
+Install plotting dependencies with:
+
+```bash
+python -m pip install -r requirements-dev.txt
+```

@@ -158,10 +158,18 @@ add_scenario_generate_test(scenario_validate_moving_anchors_success moving_ancho
 add_scenario_generate_test(scenario_validate_noisy_ranges_success noisy_ranges_success)
 add_scenario_generate_test(scenario_validate_biased_range_degraded_or_rejected biased_range_degraded_or_rejected)
 add_scenario_generate_test(scenario_validate_packet_loss_rejection packet_loss_rejection)
+add_scenario_generate_test(scenario_validate_degraded_geometry_rejection degraded_geometry_rejection)
+add_scenario_generate_test(scenario_validate_stale_altitude_rejection stale_altitude_rejection)
+add_scenario_generate_test(scenario_validate_intermittent_solution_recovery intermittent_solution_recovery)
+add_scenario_generate_test(scenario_validate_forced_denied_with_local_gnss_debug forced_denied_with_local_gnss_debug)
 
 add_scenario_replay_test(scenario_replay_static_anchors_success static_anchors_success)
 add_scenario_replay_test(scenario_replay_moving_blind_success moving_blind_success)
 add_scenario_replay_test(scenario_replay_moving_anchors_success moving_anchors_success)
+add_scenario_replay_test(scenario_replay_degraded_geometry_rejection degraded_geometry_rejection)
+add_scenario_replay_test(scenario_replay_stale_altitude_rejection stale_altitude_rejection)
+add_scenario_replay_test(scenario_replay_intermittent_solution_recovery intermittent_solution_recovery)
+add_scenario_replay_test(scenario_replay_forced_denied_with_local_gnss_debug forced_denied_with_local_gnss_debug)
 
 add_test(
     NAME scenario_invalid_missing_nodes
@@ -176,6 +184,42 @@ add_test(
 )
 
 add_test(
+    NAME scenario_invalid_duplicate_node_id
+    COMMAND ${CMAKE_COMMAND}
+        -DPYTHON_EXE=${Python3_EXECUTABLE}
+        -DGENERATOR=${CMAKE_SOURCE_DIR}/tools/sim/generate_scenario.py
+        -DWORK_DIR=${CMAKE_SOURCE_DIR}
+        -DSCENARIO=${CMAKE_SOURCE_DIR}/examples/scenarios/invalid_duplicate_node_id.json
+        -DOUT_DIR=${CMAKE_BINARY_DIR}/generated/ctest/invalid_duplicate_node_id
+        -DEXPECT_ERROR=node_id
+        -P ${CMAKE_SOURCE_DIR}/tests/check_scenario_invalid.cmake
+)
+
+add_test(
+    NAME scenario_invalid_missing_local_node
+    COMMAND ${CMAKE_COMMAND}
+        -DPYTHON_EXE=${Python3_EXECUTABLE}
+        -DGENERATOR=${CMAKE_SOURCE_DIR}/tools/sim/generate_scenario.py
+        -DWORK_DIR=${CMAKE_SOURCE_DIR}
+        -DSCENARIO=${CMAKE_SOURCE_DIR}/examples/scenarios/invalid_missing_local_node.json
+        -DOUT_DIR=${CMAKE_BINARY_DIR}/generated/ctest/invalid_missing_local_node
+        -DEXPECT_ERROR=scenario.local_node_id
+        -P ${CMAKE_SOURCE_DIR}/tests/check_scenario_invalid.cmake
+)
+
+add_test(
+    NAME scenario_invalid_bad_packet_loss_mode
+    COMMAND ${CMAKE_COMMAND}
+        -DPYTHON_EXE=${Python3_EXECUTABLE}
+        -DGENERATOR=${CMAKE_SOURCE_DIR}/tools/sim/generate_scenario.py
+        -DWORK_DIR=${CMAKE_SOURCE_DIR}
+        -DSCENARIO=${CMAKE_SOURCE_DIR}/examples/scenarios/invalid_bad_packet_loss_mode.json
+        -DOUT_DIR=${CMAKE_BINARY_DIR}/generated/ctest/invalid_bad_packet_loss_mode
+        -DEXPECT_ERROR=scenario.packet_loss.mode
+        -P ${CMAKE_SOURCE_DIR}/tests/check_scenario_invalid.cmake
+)
+
+add_test(
     NAME plot_static_anchors_success
     COMMAND ${CMAKE_COMMAND}
         -DPYTHON_EXE=${Python3_EXECUTABLE}
@@ -185,5 +229,18 @@ add_test(
         -DWORK_DIR=${CMAKE_SOURCE_DIR}
         -DSCENARIO=${CMAKE_SOURCE_DIR}/examples/scenarios/static_anchors_success.json
         -DOUT_DIR=${CMAKE_BINARY_DIR}/generated/ctest/plot_static_anchors_success
+        -P ${CMAKE_SOURCE_DIR}/tests/check_plot_replay.cmake
+)
+
+add_test(
+    NAME plot_intermittent_solution_recovery
+    COMMAND ${CMAKE_COMMAND}
+        -DPYTHON_EXE=${Python3_EXECUTABLE}
+        -DGENERATOR=${CMAKE_SOURCE_DIR}/tools/sim/generate_scenario.py
+        -DPLOTTER=${CMAKE_SOURCE_DIR}/tools/plot/plot_replay.py
+        -DREPLAY_EXE=$<TARGET_FILE:nav_replay>
+        -DWORK_DIR=${CMAKE_SOURCE_DIR}
+        -DSCENARIO=${CMAKE_SOURCE_DIR}/examples/scenarios/intermittent_solution_recovery.json
+        -DOUT_DIR=${CMAKE_BINARY_DIR}/generated/ctest/plot_intermittent_solution_recovery
         -P ${CMAKE_SOURCE_DIR}/tests/check_plot_replay.cmake
 )
