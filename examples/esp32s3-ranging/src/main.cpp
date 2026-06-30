@@ -1,11 +1,15 @@
-#include <Arduino.h>
 #include <RadioLib.h>
-#include <SPI.h>
+#include <stdio.h>
+#include <string.h>
 
+#include "EspIdfRadioLibHal.h"
 #include "board_pins.h"
+#include "driver/gpio.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 namespace {
-static constexpr uint32_t SerialBaud = 115200;
 static constexpr uint32_t RoleSelectWindowMs = 5000;
 static constexpr float RangingFrequencyMhz = 2445.0f;
 static constexpr float RangingBandwidthKhz = 1625.0f;
@@ -37,19 +41,76 @@ enum class Role {
   Slave,
 };
 
-SX1280 radio = new Module(PIN_LORA_CS, PIN_LORA_DIO1, PIN_LORA_RST, PIN_LORA_BUSY);
+EspIdfRadioLibHal radio_hal(PIN_LORA_SCK, PIN_LORA_MISO, PIN_LORA_MOSI);
+Module radio_module(&radio_hal, PIN_LORA_CS, PIN_LORA_DIO1, PIN_LORA_RST, PIN_LORA_BUSY);
+SX1280 radio(&radio_module);
+
 Role role = Role::Master;
 uint32_t attempt_id = 0;
 uint32_t next_master_exchange_ms = 0;
 uint32_t slave_listen_start_ms = 0;
 uint32_t next_slave_arming_log_ms = 0;
 
+uint32_t millis() {
+  return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
+}
+
+void delayMs(uint32_t ms) {
+  if (ms == 0) {
+    return;
+  }
+  TickType_t ticks = pdMS_TO_TICKS(ms);
+  if (ticks == 0) {
+    ticks = 1;
+  }
+  vTaskDelay(ticks);
+}
+
+void flushLog() {
+  fflush(stdout);
+}
+
 const char *roleName(Role value) {
   return value == Role::Slave ? "slave" : "master";
 }
 
-void flushLog() {
-  Serial.flush();
+bool isValidPin(int pin) {
+  return pin >= 0 && pin < GPIO_NUM_MAX;
+}
+
+int readPin(int pin) {
+  if (!isValidPin(pin)) {
+    return 0;
+  }
+  return gpio_get_level(static_cast<gpio_num_t>(pin));
+}
+
+void configureInputPin(int pin, bool pull_up) {
+  if (!isValidPin(pin)) {
+    return;
+  }
+
+  gpio_config_t config = {};
+  config.pin_bit_mask = (1ULL << pin);
+  config.mode = GPIO_MODE_INPUT;
+  config.pull_up_en = pull_up ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE;
+  config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  config.intr_type = GPIO_INTR_DISABLE;
+  gpio_config(&config);
+}
+
+void configureOutputPin(int pin) {
+  if (!isValidPin(pin)) {
+    return;
+  }
+
+  gpio_config_t config = {};
+  config.pin_bit_mask = (1ULL << pin);
+  config.mode = GPIO_MODE_OUTPUT;
+  config.pull_up_en = GPIO_PULLUP_DISABLE;
+  config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  config.intr_type = GPIO_INTR_DISABLE;
+  gpio_config(&config);
 }
 
 void appendFlag(char *buffer, size_t buffer_size, const char *flag) {
@@ -92,20 +153,21 @@ void formatIrqFlags(uint16_t irq, char *buffer, size_t buffer_size) {
 }
 
 void setStatusLed(bool on) {
-  if (BoardPins::status_led >= 0) {
-    digitalWrite(BoardPins::status_led, on ? HIGH : LOW);
+  if (isValidPin(BoardPins::status_led)) {
+    gpio_set_level(static_cast<gpio_num_t>(BoardPins::status_led), on ? 1 : 0);
   }
 }
 
 void setupStatusLed() {
-  if (BoardPins::status_led >= 0) {
-    pinMode(BoardPins::status_led, OUTPUT);
+  if (isValidPin(BoardPins::status_led)) {
+    configureOutputPin(BoardPins::status_led);
     setStatusLed(false);
   }
 }
 
+#if FORCE_RANGING_ROLE == 0
 void blinkStatusDuringRoleWindow(uint32_t now_ms, uint32_t *last_toggle_ms, bool *led_on) {
-  if (BoardPins::status_led < 0) {
+  if (!isValidPin(BoardPins::status_led)) {
     return;
   }
   if ((now_ms - *last_toggle_ms) >= 100) {
@@ -114,42 +176,43 @@ void blinkStatusDuringRoleWindow(uint32_t now_ms, uint32_t *last_toggle_ms, bool
     *last_toggle_ms = now_ms;
   }
 }
+#endif
 
 Role selectRole() {
 #if FORCE_RANGING_ROLE == 1
-  Serial.println("role_select selected=master reason=build_flag");
+  printf("role_select selected=master reason=build_flag\n");
   flushLog();
   return Role::Master;
 #elif FORCE_RANGING_ROLE == 2
-  Serial.println("role_select selected=slave reason=build_flag");
+  printf("role_select selected=slave reason=build_flag\n");
   flushLog();
   return Role::Slave;
 #else
-  Serial.println();
-  Serial.printf("[esp32s3-ranging] role window: press BOOT/GPIO%d within 5s for slave\r\n",
-                BoardPins::boot_select);
+  printf("\n");
+  printf("[esp32s3-ranging] role window: press BOOT/GPIO%d within 5s for slave\n",
+         BoardPins::boot_select);
   flushLog();
 
-  pinMode(BoardPins::boot_select, INPUT_PULLUP);
+  configureInputPin(BoardPins::boot_select, true);
   const uint32_t started_ms = millis();
   uint32_t last_toggle_ms = started_ms;
   bool led_on = false;
 
   while ((millis() - started_ms) < RoleSelectWindowMs) {
-    if (digitalRead(BoardPins::boot_select) == LOW) {
-      Serial.println("role_select selected=slave reason=boot_button");
+    if (readPin(BoardPins::boot_select) == 0) {
+      printf("role_select selected=slave reason=boot_button\n");
       flushLog();
       setStatusLed(false);
-      delay(250);
+      delayMs(250);
       return Role::Slave;
     }
 
     blinkStatusDuringRoleWindow(millis(), &last_toggle_ms, &led_on);
-    delay(10);
+    delayMs(10);
   }
 
   setStatusLed(false);
-  Serial.println("role_select selected=master reason=timeout");
+  printf("role_select selected=master reason=timeout\n");
   flushLog();
   return Role::Master;
 #endif
@@ -157,36 +220,36 @@ Role selectRole() {
 
 bool waitBusyLow(uint32_t timeout_ms) {
   const uint32_t started_ms = millis();
-  while (digitalRead(BoardPins::lora_busy) == HIGH) {
+  while (readPin(BoardPins::lora_busy) != 0) {
     if ((millis() - started_ms) >= timeout_ms) {
       return false;
     }
-    delay(2);
+    delayMs(2);
   }
   return true;
 }
 
 void printPinMap() {
-  Serial.printf("pin_map sck=%d miso=%d mosi=%d cs=%d rst=%d busy=%d dio1=%d boot_select=%d status_led=%d\r\n",
-                BoardPins::lora_sck,
-                BoardPins::lora_miso,
-                BoardPins::lora_mosi,
-                BoardPins::lora_cs,
-                BoardPins::lora_rst,
-                BoardPins::lora_busy,
-                BoardPins::lora_dio1,
-                BoardPins::boot_select,
-                BoardPins::status_led);
+  printf("pin_map sck=%d miso=%d mosi=%d cs=%d rst=%d busy=%d dio1=%d boot_select=%d status_led=%d\n",
+         BoardPins::lora_sck,
+         BoardPins::lora_miso,
+         BoardPins::lora_mosi,
+         BoardPins::lora_cs,
+         BoardPins::lora_rst,
+         BoardPins::lora_busy,
+         BoardPins::lora_dio1,
+         BoardPins::boot_select,
+         BoardPins::status_led);
   flushLog();
 }
 
 void printProfile() {
-  Serial.printf("ranging_profile freq_mhz=%.1f bandwidth_khz=%.1f sf=%u cr=4/%u address=0x%08lX calibration_sf7_bw1625=13528 uncorrected_m_primary=true\r\n",
-                static_cast<double>(RangingFrequencyMhz),
-                static_cast<double>(RangingBandwidthKhz),
-                RangingSpreadingFactor,
-                RangingCodingRate,
-                static_cast<unsigned long>(RangingAddress));
+  printf("ranging_profile freq_mhz=%.1f bandwidth_khz=%.1f sf=%u cr=4/%u address=0x%08lX calibration_sf7_bw1625=13528 uncorrected_m_primary=true\n",
+         static_cast<double>(RangingFrequencyMhz),
+         static_cast<double>(RangingBandwidthKhz),
+         RangingSpreadingFactor,
+         RangingCodingRate,
+         static_cast<unsigned long>(RangingAddress));
   flushLog();
 }
 
@@ -195,39 +258,38 @@ void runPreRadioArmingDelay(Role selected_role) {
   const uint32_t start_ms = millis();
   uint32_t next_log_ms = start_ms;
 
-  Serial.printf("%s_pre_radio_arming start delay_ms=%lu\r\n",
-                roleName(selected_role),
-                static_cast<unsigned long>(delay_ms));
+  printf("%s_pre_radio_arming start delay_ms=%lu\n",
+         roleName(selected_role),
+         static_cast<unsigned long>(delay_ms));
   flushLog();
 
   while ((millis() - start_ms) < delay_ms) {
     if ((int32_t)(millis() - next_log_ms) >= 0) {
-      Serial.printf("%s_pre_radio_arming remaining_ms=%lu\r\n",
-                    roleName(selected_role),
-                    static_cast<unsigned long>(delay_ms - (millis() - start_ms)));
+      printf("%s_pre_radio_arming remaining_ms=%lu\n",
+             roleName(selected_role),
+             static_cast<unsigned long>(delay_ms - (millis() - start_ms)));
       flushLog();
       next_log_ms = millis() + 1000;
     }
-    delay(20);
+    delayMs(20);
   }
 }
 
 void fatalRadioInit(int16_t state) {
   for (;;) {
-    Serial.printf("radio_init_failed error=%d note=\"SX1280 not ready; check wiring, power, and SPI pins\"\r\n",
-                  state);
+    printf("radio_init_failed error=%d note=\"SX1280 not ready; check wiring, power, and SPI pins\"\n",
+           state);
     flushLog();
     setStatusLed(true);
-    delay(80);
+    delayMs(80);
     setStatusLed(false);
-    delay(920);
+    delayMs(920);
   }
 }
 
 void initRadio() {
-  pinMode(BoardPins::lora_busy, INPUT);
-  pinMode(BoardPins::lora_dio1, INPUT);
-  SPI.begin(BoardPins::lora_sck, BoardPins::lora_miso, BoardPins::lora_mosi, BoardPins::lora_cs);
+  configureInputPin(BoardPins::lora_busy, false);
+  configureInputPin(BoardPins::lora_dio1, false);
 
   if (!waitBusyLow(1000)) {
     fatalRadioInit(RADIOLIB_ERR_SPI_CMD_TIMEOUT);
@@ -240,10 +302,10 @@ void initRadio() {
                               RangingSyncWord,
                               RangingTxPowerDbm,
                               RangingPreambleLength);
-  Serial.printf("radio_init role=%s ok=%s error=%d\r\n",
-                roleName(role),
-                state == RADIOLIB_ERR_NONE ? "true" : "false",
-                state);
+  printf("radio_init role=%s ok=%s error=%d\n",
+         roleName(role),
+         state == RADIOLIB_ERR_NONE ? "true" : "false",
+         state);
   flushLog();
   if (state != RADIOLIB_ERR_NONE) {
     fatalRadioInit(state);
@@ -252,11 +314,11 @@ void initRadio() {
 
 bool waitDio1High(uint32_t timeout_ms) {
   const uint32_t started_ms = millis();
-  while (digitalRead(BoardPins::lora_dio1) == LOW) {
+  while (readPin(BoardPins::lora_dio1) == 0) {
     if ((millis() - started_ms) >= timeout_ms) {
       return false;
     }
-    delay(2);
+    delayMs(2);
   }
   return true;
 }
@@ -264,13 +326,13 @@ bool waitDio1High(uint32_t timeout_ms) {
 void logMasterFailure(uint32_t elapsed_ms, int16_t error, uint16_t irq, const char *note) {
   char flags[96];
   formatIrqFlags(irq, flags, sizeof(flags));
-  Serial.printf("range_result ok=false role=master attempt=%lu elapsed_ms=%lu error=%d irq=0x%04X flags=\"%s\" note=\"%s\"\r\n",
-                static_cast<unsigned long>(attempt_id),
-                static_cast<unsigned long>(elapsed_ms),
-                error,
-                irq,
-                flags,
-                note);
+  printf("range_result ok=false role=master attempt=%lu elapsed_ms=%lu error=%d irq=0x%04X flags=\"%s\" note=\"%s\"\n",
+         static_cast<unsigned long>(attempt_id),
+         static_cast<unsigned long>(elapsed_ms),
+         error,
+         irq,
+         flags,
+         note);
   flushLog();
 }
 
@@ -278,9 +340,9 @@ void runMasterExchange() {
   attempt_id++;
   const uint32_t started_ms = millis();
 
-  Serial.printf("master_exchange start role=master attempt=%lu timeout_ms=%lu\r\n",
-                static_cast<unsigned long>(attempt_id),
-                static_cast<unsigned long>(MasterHostTimeoutMs));
+  printf("master_exchange start role=master attempt=%lu timeout_ms=%lu\n",
+         static_cast<unsigned long>(attempt_id),
+         static_cast<unsigned long>(MasterHostTimeoutMs));
   flushLog();
 
   if (!waitBusyLow(1000)) {
@@ -329,15 +391,15 @@ void runMasterExchange() {
 
   char flags[96];
   formatIrqFlags(irq, flags, sizeof(flags));
-  Serial.printf("range_result ok=true role=master attempt=%lu uncorrected_m=%.2f raw_reg=%ld rssi_dbm=%.1f snr_db=%.1f elapsed_ms=%lu irq=0x%04X flags=\"%s\"\r\n",
-                static_cast<unsigned long>(attempt_id),
-                static_cast<double>(uncorrected_m),
-                static_cast<long>(raw_reg),
-                static_cast<double>(rssi_dbm),
-                static_cast<double>(snr_db),
-                static_cast<unsigned long>(elapsed_ms),
-                irq,
-                flags);
+  printf("range_result ok=true role=master attempt=%lu uncorrected_m=%.2f raw_reg=%ld rssi_dbm=%.1f snr_db=%.1f elapsed_ms=%lu irq=0x%04X flags=\"%s\"\n",
+         static_cast<unsigned long>(attempt_id),
+         static_cast<double>(uncorrected_m),
+         static_cast<long>(raw_reg),
+         static_cast<double>(rssi_dbm),
+         static_cast<double>(snr_db),
+         static_cast<unsigned long>(elapsed_ms),
+         irq,
+         flags);
   flushLog();
 }
 
@@ -352,8 +414,8 @@ void serviceMaster() {
 void serviceSlave() {
   const uint32_t started_ms = millis();
 
-  Serial.printf("slave_listen start role=slave timeout_ms=%lu\r\n",
-                static_cast<unsigned long>(SlaveListenWindowMs));
+  printf("slave_listen start role=slave timeout_ms=%lu\n",
+         static_cast<unsigned long>(SlaveListenWindowMs));
   flushLog();
 
   (void)radio.clearIrqFlags(RADIOLIB_SX128X_IRQ_ALL);
@@ -362,46 +424,46 @@ void serviceSlave() {
     const uint16_t irq = radio.getIrqStatus();
     char flags[96];
     formatIrqFlags(irq, flags, sizeof(flags));
-    Serial.printf("slave_listen ok=false elapsed_ms=%lu error=%d irq=0x%04X flags=\"%s\" note=\"startRanging failed\"\r\n",
-                  static_cast<unsigned long>(millis() - started_ms),
-                  state,
-                  irq,
-                  flags);
+    printf("slave_listen ok=false elapsed_ms=%lu error=%d irq=0x%04X flags=\"%s\" note=\"startRanging failed\"\n",
+           static_cast<unsigned long>(millis() - started_ms),
+           state,
+           irq,
+           flags);
     flushLog();
-    delay(500);
+    delayMs(500);
     return;
   }
 
   uint32_t next_log_ms = started_ms;
-  while (digitalRead(BoardPins::lora_dio1) == LOW &&
+  while (readPin(BoardPins::lora_dio1) == 0 &&
          (millis() - started_ms) < SlaveListenWindowMs) {
     if ((int32_t)(millis() - next_log_ms) >= 0) {
       const uint16_t irq = radio.getIrqStatus();
       char flags[96];
       formatIrqFlags(irq, flags, sizeof(flags));
-      Serial.printf("slave_listen alive elapsed_ms=%lu remaining_ms=%lu busy=%d dio1=%d irq=0x%04X flags=\"%s\"\r\n",
-                    static_cast<unsigned long>(millis() - started_ms),
-                    static_cast<unsigned long>(SlaveListenWindowMs - (millis() - started_ms)),
-                    digitalRead(BoardPins::lora_busy),
-                    digitalRead(BoardPins::lora_dio1),
-                    irq,
-                    flags);
+      printf("slave_listen alive elapsed_ms=%lu remaining_ms=%lu busy=%d dio1=%d irq=0x%04X flags=\"%s\"\n",
+             static_cast<unsigned long>(millis() - started_ms),
+             static_cast<unsigned long>(SlaveListenWindowMs - (millis() - started_ms)),
+             readPin(BoardPins::lora_busy),
+             readPin(BoardPins::lora_dio1),
+             irq,
+             flags);
       flushLog();
       next_log_ms = millis() + 1000;
     }
-    delay(20);
+    delayMs(20);
   }
 
-  if (digitalRead(BoardPins::lora_dio1) == LOW) {
+  if (readPin(BoardPins::lora_dio1) == 0) {
     const uint16_t irq = radio.getIrqStatus();
     (void)radio.finishRanging();
     char flags[96];
     formatIrqFlags(irq, flags, sizeof(flags));
-    Serial.printf("slave_listen ok=false elapsed_ms=%lu error=%d irq=0x%04X flags=\"%s\" note=\"no master request observed\"\r\n",
-                  static_cast<unsigned long>(millis() - started_ms),
-                  RADIOLIB_ERR_RANGING_TIMEOUT,
-                  irq,
-                  flags);
+    printf("slave_listen ok=false elapsed_ms=%lu error=%d irq=0x%04X flags=\"%s\" note=\"no master request observed\"\n",
+           static_cast<unsigned long>(millis() - started_ms),
+           RADIOLIB_ERR_RANGING_TIMEOUT,
+           irq,
+           flags);
     flushLog();
     return;
   }
@@ -410,28 +472,27 @@ void serviceSlave() {
   state = radio.finishRanging();
   char flags[96];
   formatIrqFlags(irq, flags, sizeof(flags));
-  Serial.printf("slave_response ok=%s elapsed_ms=%lu error=%d irq=0x%04X flags=\"%s\"\r\n",
-                state == RADIOLIB_ERR_NONE ? "true" : "false",
-                static_cast<unsigned long>(millis() - started_ms),
-                state,
-                irq,
-                flags);
+  printf("slave_response ok=%s elapsed_ms=%lu error=%d irq=0x%04X flags=\"%s\"\n",
+         state == RADIOLIB_ERR_NONE ? "true" : "false",
+         static_cast<unsigned long>(millis() - started_ms),
+         state,
+         irq,
+         flags);
   flushLog();
 }
-}  // namespace
 
-void setup() {
-  Serial.begin(SerialBaud);
-  delay(1500);
+void setupApp() {
+  setvbuf(stdout, nullptr, _IONBF, 0);
+  delayMs(1500);
 
   setupStatusLed();
-  Serial.println("[esp32s3-ranging] booting");
-  Serial.printf("board=%s build=\"%s %s\"\r\n", BoardPins::board_name, __DATE__, __TIME__);
+  printf("[esp32s3-ranging] booting\n");
+  printf("board=%s build=\"%s %s\"\n", BoardPins::board_name, __DATE__, __TIME__);
   flushLog();
   printPinMap();
 
   role = selectRole();
-  Serial.printf("[esp32s3-ranging] role=%s\r\n", roleName(role));
+  printf("[esp32s3-ranging] role=%s\n", roleName(role));
   flushLog();
   printProfile();
   runPreRadioArmingDelay(role);
@@ -439,31 +500,39 @@ void setup() {
 
   if (role == Role::Master) {
     next_master_exchange_ms = millis();
-    Serial.println("master_ready");
+    printf("master_ready\n");
     flushLog();
   } else {
     slave_listen_start_ms = millis();
     next_slave_arming_log_ms = millis();
-    Serial.println("slave_ready note=\"serial monitor is optional; master logs are primary evidence\"");
+    printf("slave_ready note=\"serial monitor is optional; master logs are primary evidence\"\n");
     flushLog();
   }
 }
 
-void loop() {
+void loopApp() {
   if (role == Role::Slave) {
     if ((int32_t)(millis() - slave_listen_start_ms) < 0) {
       if ((int32_t)(millis() - next_slave_arming_log_ms) >= 0) {
-        Serial.printf("slave_arming remaining_ms=%ld\r\n",
-                      static_cast<long>(slave_listen_start_ms - millis()));
+        printf("slave_arming remaining_ms=%ld\n",
+               static_cast<long>(slave_listen_start_ms - millis()));
         flushLog();
         next_slave_arming_log_ms = millis() + 1000;
       }
-      delay(20);
+      delayMs(20);
       return;
     }
     serviceSlave();
     return;
   }
   serviceMaster();
-  delay(10);
+  delayMs(10);
+}
+}  // namespace
+
+extern "C" void app_main() {
+  setupApp();
+  for (;;) {
+    loopApp();
+  }
 }

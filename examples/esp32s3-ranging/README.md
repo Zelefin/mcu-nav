@@ -4,8 +4,8 @@ SX1280 ranging bring-up firmware for two ESP32-S3-DEVKITC-1 boards wired to
 E28-2G4M12SX modules.
 
 This is a hardware bring-up example. It is self-contained under
-`examples/esp32s3-ranging`, uses RadioLib's SX1280 ranging API, and does not
-change the root hardware health-check firmware or `core/`.
+`examples/esp32s3-ranging`, uses ESP-IDF plus RadioLib's SX1280 ranging API,
+and does not change the root hardware health-check firmware or `core/`.
 
 ## Behavior
 
@@ -61,6 +61,9 @@ From the repository root, using the local virtualenv:
 .venv/bin/pio run -d examples/esp32s3-ranging
 ```
 
+This example uses PlatformIO's `espidf` framework. The first build may take
+longer while PlatformIO installs ESP-IDF packages.
+
 If you need to create the virtualenv first:
 
 ```bash
@@ -103,8 +106,9 @@ run the `stty` and `cat` commands again. For a forced slave build, expect:
 
 ```text
 role_select selected=slave reason=build_flag
-slave_ready arming_delay_ms=5000 ...
-slave_arming remaining_ms=...
+slave_pre_radio_arming ...
+radio_init role=slave ok=true error=0
+slave_ready ...
 slave_listen start role=slave timeout_ms=10000
 ```
 
