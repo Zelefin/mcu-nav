@@ -40,6 +40,10 @@ const char *roleName(Role value) {
   return value == Role::Slave ? "slave" : "master";
 }
 
+void flushLog() {
+  Serial.flush();
+}
+
 void setStatusLed(bool on) {
   if (BoardPins::status_led >= 0) {
     digitalWrite(BoardPins::status_led, on ? HIGH : LOW);
@@ -68,6 +72,7 @@ Role selectRole() {
   Serial.println();
   Serial.printf("[esp32s3-ranging] role window: press BOOT/GPIO%d within 5s for slave\r\n",
                 BoardPins::boot_select);
+  flushLog();
 
   pinMode(BoardPins::boot_select, INPUT_PULLUP);
   const uint32_t started_ms = millis();
@@ -77,6 +82,7 @@ Role selectRole() {
   while ((millis() - started_ms) < RoleSelectWindowMs) {
     if (digitalRead(BoardPins::boot_select) == LOW) {
       Serial.println("role_select selected=slave reason=boot_button");
+      flushLog();
       setStatusLed(false);
       delay(250);
       return Role::Slave;
@@ -88,6 +94,7 @@ Role selectRole() {
 
   setStatusLed(false);
   Serial.println("role_select selected=master reason=timeout");
+  flushLog();
   return Role::Master;
 }
 
@@ -113,6 +120,7 @@ void printPinMap() {
                 BoardPins::lora_dio1,
                 BoardPins::boot_select,
                 BoardPins::status_led);
+  flushLog();
 }
 
 void printProfile() {
@@ -122,11 +130,13 @@ void printProfile() {
                 RangingSpreadingFactor,
                 RangingCodingRate,
                 static_cast<unsigned long>(RangingAddress));
+  flushLog();
 }
 
 void fatalRadioInit(int16_t state) {
   Serial.printf("radio_init_failed error=%d note=\"SX1280 not ready; check wiring, power, and SPI pins\"\r\n",
                 state);
+  flushLog();
   for (;;) {
     setStatusLed(true);
     delay(80);
@@ -155,6 +165,7 @@ void initRadio() {
                 roleName(role),
                 state == RADIOLIB_ERR_NONE ? "true" : "false",
                 state);
+  flushLog();
   if (state != RADIOLIB_ERR_NONE) {
     fatalRadioInit(state);
   }
@@ -177,6 +188,7 @@ void logMasterFailure(uint32_t elapsed_ms, int16_t error, const char *note) {
                 static_cast<unsigned long>(elapsed_ms),
                 error,
                 note);
+  flushLog();
 }
 
 void runMasterExchange() {
@@ -199,10 +211,10 @@ void runMasterExchange() {
   }
 
   if (!waitDio1High(MasterHostTimeoutMs)) {
-    (void)radio.finishRanging();
     logMasterFailure(millis() - started_ms,
                      RADIOLIB_ERR_RANGING_TIMEOUT,
                      "ranging timeout; check slave role, power, wiring, address, and RF profile");
+    (void)radio.finishRanging();
     return;
   }
 
@@ -227,6 +239,7 @@ void runMasterExchange() {
                 static_cast<double>(rssi_dbm),
                 static_cast<double>(snr_db),
                 static_cast<unsigned long>(elapsed_ms));
+  flushLog();
 }
 
 void serviceMaster() {
@@ -245,6 +258,7 @@ void serviceSlave() {
     Serial.printf("slave_listen ok=false elapsed_ms=%lu error=%d note=\"startRanging failed\"\r\n",
                   static_cast<unsigned long>(millis() - started_ms),
                   state);
+    flushLog();
     delay(500);
     return;
   }
@@ -254,6 +268,7 @@ void serviceSlave() {
     Serial.printf("slave_listen ok=false elapsed_ms=%lu error=%d note=\"no master request observed\"\r\n",
                   static_cast<unsigned long>(millis() - started_ms),
                   RADIOLIB_ERR_RANGING_TIMEOUT);
+    flushLog();
     return;
   }
 
@@ -262,6 +277,7 @@ void serviceSlave() {
                 state == RADIOLIB_ERR_NONE ? "true" : "false",
                 static_cast<unsigned long>(millis() - started_ms),
                 state);
+  flushLog();
 }
 }  // namespace
 
@@ -272,10 +288,12 @@ void setup() {
   setupStatusLed();
   Serial.println("[esp32s3-ranging] booting");
   Serial.printf("board=%s build=\"%s %s\"\r\n", BoardPins::board_name, __DATE__, __TIME__);
+  flushLog();
   printPinMap();
 
   role = selectRole();
   Serial.printf("[esp32s3-ranging] role=%s\r\n", roleName(role));
+  flushLog();
   printProfile();
   initRadio();
 
@@ -283,6 +301,7 @@ void setup() {
     next_master_exchange_ms = millis();
   } else {
     Serial.println("slave_ready note=\"serial monitor is optional; master logs are primary evidence\"");
+    flushLog();
   }
 }
 
