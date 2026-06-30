@@ -89,6 +89,24 @@ Open the monitor:
 .venv/bin/pio device monitor -p /dev/ttyACM0 -b 115200
 ```
 
+For the ESP32-S3 USB CDC/JTAG port, opening the serial reader after upload can
+miss startup logs. The reliable workflow is to open the reader first, then press
+RESET on the board:
+
+```bash
+stty -F /dev/ttyACM0 115200 raw -echo
+cat /dev/ttyACM0
+```
+
+Then press RESET. For a forced slave build, expect:
+
+```text
+role_select selected=slave reason=build_flag
+slave_ready arming_delay_ms=5000 ...
+slave_arming remaining_ms=...
+slave_listen start role=slave timeout_ms=10000
+```
+
 You can also upload and monitor in one command:
 
 ```bash

@@ -18,6 +18,7 @@ static constexpr uint32_t RangingAddress = 0x53423234UL;  // "SB24"
 static constexpr uint32_t MasterHostTimeoutMs = 350;
 static constexpr uint32_t MasterExchangePeriodMs = 500;
 static constexpr uint32_t SlaveListenWindowMs = 10000;
+static constexpr uint32_t SlaveArmingDelayMs = 5000;
 
 #ifndef FORCE_RANGING_ROLE
 #define FORCE_RANGING_ROLE 0
@@ -39,6 +40,8 @@ SX1280 radio = new Module(PIN_LORA_CS, PIN_LORA_DIO1, PIN_LORA_RST, PIN_LORA_BUS
 Role role = Role::Master;
 uint32_t attempt_id = 0;
 uint32_t next_master_exchange_ms = 0;
+uint32_t slave_listen_start_ms = 0;
+uint32_t next_slave_arming_log_ms = 0;
 
 const char *roleName(Role value) {
   return value == Role::Slave ? "slave" : "master";
@@ -187,14 +190,14 @@ void printProfile() {
 }
 
 void fatalRadioInit(int16_t state) {
-  Serial.printf("radio_init_failed error=%d note=\"SX1280 not ready; check wiring, power, and SPI pins\"\r\n",
-                state);
-  flushLog();
   for (;;) {
+    Serial.printf("radio_init_failed error=%d note=\"SX1280 not ready; check wiring, power, and SPI pins\"\r\n",
+                  state);
+    flushLog();
     setStatusLed(true);
     delay(80);
     setStatusLed(false);
-    delay(80);
+    delay(920);
   }
 }
 
@@ -321,6 +324,10 @@ void serviceMaster() {
 void serviceSlave() {
   const uint32_t started_ms = millis();
 
+  Serial.printf("slave_listen start role=slave timeout_ms=%lu\r\n",
+                static_cast<unsigned long>(SlaveListenWindowMs));
+  flushLog();
+
   (void)radio.clearIrqFlags(RADIOLIB_SX128X_IRQ_ALL);
   int16_t state = radio.startRanging(false, RangingAddress, RangingCalibration);
   if (state != RADIOLIB_ERR_NONE) {
@@ -384,13 +391,26 @@ void setup() {
   if (role == Role::Master) {
     next_master_exchange_ms = millis();
   } else {
-    Serial.println("slave_ready note=\"serial monitor is optional; master logs are primary evidence\"");
+    slave_listen_start_ms = millis() + SlaveArmingDelayMs;
+    next_slave_arming_log_ms = millis();
+    Serial.printf("slave_ready arming_delay_ms=%lu note=\"serial monitor is optional; master logs are primary evidence\"\r\n",
+                  static_cast<unsigned long>(SlaveArmingDelayMs));
     flushLog();
   }
 }
 
 void loop() {
   if (role == Role::Slave) {
+    if ((int32_t)(millis() - slave_listen_start_ms) < 0) {
+      if ((int32_t)(millis() - next_slave_arming_log_ms) >= 0) {
+        Serial.printf("slave_arming remaining_ms=%ld\r\n",
+                      static_cast<long>(slave_listen_start_ms - millis()));
+        flushLog();
+        next_slave_arming_log_ms = millis() + 1000;
+      }
+      delay(20);
+      return;
+    }
     serviceSlave();
     return;
   }
