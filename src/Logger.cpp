@@ -12,6 +12,7 @@
 
 namespace {
 SemaphoreHandle_t gLoggerMutex = nullptr;
+uint32_t gLoggerStartMs = 0;
 
 uint8_t configuredLogLevel() {
   if (LOG_LEVEL < 0) {
@@ -63,6 +64,7 @@ namespace Logger {
 void begin() {
   if (gLoggerMutex == nullptr) {
     gLoggerMutex = xSemaphoreCreateMutex();
+    gLoggerStartMs = millis();
   }
 }
 
@@ -78,12 +80,28 @@ void rawf(const char *level, const char *tag, const char *format, va_list args) 
     xSemaphoreTake(gLoggerMutex, portMAX_DELAY);
   }
 
-  Serial.print('[');
-  Serial.print(level);
-  Serial.print("] [");
-  Serial.print(tag);
-  Serial.print("] ");
-  Serial.println(message);
+  const uint32_t elapsedMs = millis() - gLoggerStartMs;
+  char line[320];
+  const int written = snprintf(line,
+                               sizeof(line),
+                               "t=%lums [%s] [%s] %s\r\n",
+                               static_cast<unsigned long>(elapsedMs),
+                               level,
+                               tag,
+                               message);
+  if (written >= 0) {
+    size_t lineLength = static_cast<size_t>(written);
+    if (lineLength >= sizeof(line)) {
+      lineLength = sizeof(line) - 1;
+      if (lineLength >= 2) {
+        line[lineLength - 2] = '\r';
+        line[lineLength - 1] = '\n';
+      }
+    }
+
+    Serial.write(reinterpret_cast<const uint8_t *>(line), lineLength);
+    Serial.flush();
+  }
 
   if (gLoggerMutex != nullptr) {
     xSemaphoreGive(gLoggerMutex);

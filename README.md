@@ -153,22 +153,22 @@ example:
 ### Expected Output
 
 ```text
-[INFO] [SYSTEM] Booting firmware
-[INFO] [SYSTEM] Board: NodeMCU-32S
-[INFO] [SYSTEM] Build: Jun 30 2026 12:00:00
-[INFO] [SYSTEM] Pin map:
-[INFO] [RADIO] Initializing SX128x radio over SPI
-[OK] [RADIO] SX128x initialized: freq=2445.0 MHz bw=812.5 kHz sf=7 cr=5 power=2 dBm
-[OK] [RADIO] RX listen mode started
-[OK] [RADIO] TX packet sent: bytes=39 payload="mcu-nav-health board=NodeMCU-32S seq=0"
-[OK] [RADIO] RX packet received: bytes=47 RSSI=-48.5 dBm SNR=8.0 dB payload="..."
-[INFO] [GPS] UART started at 115200 baud RX=16 TX=17
-[OK] [GPS] NMEA data received: sentences=12 new_sentences=yes
-[WARN] [GPS] Data received but no location fix yet satellites=0 hdop=0.00
-[OK] [COMPASS] QMC5883 detected at 0x0D
-[OK] [COMPASS] QMC5883 config write OK
-[INFO] [COMPASS] Raw magnetic field: X=123 Y=-45 Z=890
-[INFO] [SYSTEM] Health summary: RADIO=OK GPS=WARN COMPASS=OK | radio tx=1 rx=1 gps_bytes=530 gps_sentences=10 compass_xyz=123,-45,890
+t=...ms [INFO] [SYSTEM] Booting firmware
+t=...ms [INFO] [SYSTEM] Board: NodeMCU-32S
+t=...ms [INFO] [SYSTEM] Build: Jun 30 2026 12:00:00
+t=...ms [INFO] [SYSTEM] Pin map:
+t=...ms [INFO] [RADIO] Initializing SX128x radio over SPI
+t=...ms [OK] [RADIO] SX128x initialized: freq=2445.0 MHz bw=812.5 kHz sf=7 cr=5 power=2 dBm
+t=...ms [OK] [RADIO] RX listen mode started
+t=...ms [OK] [RADIO] TX packet sent: bytes=39 payload="mcu-nav-health board=NodeMCU-32S seq=0"
+t=...ms [OK] [RADIO] RX packet received: bytes=47 RSSI=-48.5 dBm SNR=8.0 dB payload="..."
+t=...ms [INFO] [GPS] UART started at 115200 baud RX=16 TX=17
+t=...ms [OK] [GPS] NMEA data received: sentences=12 new_sentences=yes
+t=...ms [WARN] [GPS] Data received but no location fix yet satellites=0 hdop=0.00
+t=...ms [OK] [COMPASS] QMC5883 detected at 0x0D
+t=...ms [OK] [COMPASS] QMC5883 config write OK
+t=...ms [INFO] [COMPASS] Raw magnetic field: X=123 Y=-45 Z=890
+t=...ms [INFO] [SYSTEM] Health summary: RADIO=OK GPS=WARN COMPASS=OK | radio tx=1 rx=1 gps_bytes=530 gps_sentences=10 compass_xyz=123,-45,890
 ```
 
 ### Radio TX/RX Procedure
