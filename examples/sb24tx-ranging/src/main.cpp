@@ -17,6 +17,7 @@ static constexpr uint32_t RANGING_FREQUENCY_HZ = 2445000000UL;
 static constexpr uint32_t RANGING_ADDRESS = 0x53423234UL;  // "SB24"
 static constexpr uint16_t RANGING_CALIBRATION = 13528;     // SF7/BW1600 table.
 static constexpr float SHORT_RANGE_RAW_BIAS_M = 6.2f;      // Empirical SB24TX v0 bias.
+static constexpr float SHORT_RANGE_CORRECTION_LIMIT_M = 18.5f;
 static constexpr uint16_t MASTER_EXCHANGE_TIMEOUT_MS = 150;
 static constexpr uint32_t MASTER_HOST_TIMEOUT_MS = 350;
 static constexpr uint32_t MASTER_EXCHANGE_PERIOD_MS = 500;
@@ -31,6 +32,11 @@ enum PaMode {
   PA_OFF,
   PA_RX,
   PA_TX,
+};
+
+struct RangeCorrection {
+  float corrected_m;
+  const char *mode;
 };
 
 static SX1280 radio(PIN_RADIO_NSS, PIN_RADIO_RST, PIN_RADIO_BUSY);
@@ -76,11 +82,17 @@ static void setPaMode(PaMode mode) {
   }
 }
 
-static float correctedMeters(float biased_raw_m) {
-  if (biased_raw_m <= 18.5f) {
-    return expf((biased_raw_m + 2.4917f) / 7.2262f);
+static RangeCorrection correctRange(float biased_raw_m) {
+  if (biased_raw_m <= SHORT_RANGE_CORRECTION_LIMIT_M) {
+    return {
+        expf((biased_raw_m + 2.4917f) / 7.2262f),
+        "short_exp",
+    };
   }
-  return biased_raw_m;
+  return {
+      biased_raw_m,
+      "linear_bias",
+  };
 }
 
 static void fatalBlink(const __FlashStringHelper *message) {
@@ -204,12 +216,16 @@ static void runMasterExchange() {
     int32_t raw_result = radio.readRangingResultRaw();
     float raw_m = radio.rawRangingMeters(raw_result);
     float biased_raw_m = raw_m + SHORT_RANGE_RAW_BIAS_M;
-    float corrected_m = correctedMeters(biased_raw_m);
+    RangeCorrection correction = correctRange(biased_raw_m);
 
     Serial.print(F("range_result ok=true attempt="));
     Serial.print(attempt_id);
     Serial.print(F(" corrected_m="));
-    Serial.print(corrected_m, 2);
+    Serial.print(correction.corrected_m, 2);
+    Serial.print(F(" correction="));
+    Serial.print(correction.mode);
+    Serial.print(F(" short_limit_m="));
+    Serial.print(SHORT_RANGE_CORRECTION_LIMIT_M, 1);
     Serial.print(F(" raw_m="));
     Serial.print(raw_m, 2);
     Serial.print(F(" biased_raw_m="));
