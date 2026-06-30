@@ -1,7 +1,7 @@
 #pragma once
 
-#include <Arduino.h>
 #include <stdarg.h>
+#include <stdint.h>
 
 enum class LogLevel : uint8_t {
   Error = 0,

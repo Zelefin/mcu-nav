@@ -8,7 +8,7 @@ radio firmware, real GNSS hardware drivers, or flight-controller output.
 
 ## ESP32 Hardware Health Check
 
-The repository root is also a PlatformIO + Arduino firmware project for
+The repository root is also a PlatformIO + ESP-IDF firmware project for
 checking the wiring and basic module functionality of an ESP32
 navigation-node hardware stack. This firmware is a diagnostic only: it does not
 use `core/`, does not implement ranging, and does not implement the future radio
@@ -20,8 +20,10 @@ protocol.
 - Radio TX by periodically sending a short LoRa health packet.
 - Radio RX by listening for matching packets from another board running this
   firmware.
-- HGLRC M100-5883 GPS UART by receiving and parsing NMEA at 115200 baud.
-- QMC5883 compass by writing configuration over I2C and reading raw XYZ data.
+- HGLRC M100-5883 GPS UART with the ESP-IDF UART driver and a fixed-buffer NMEA
+  parser at 115200 baud.
+- QMC5883 compass with the ESP-IDF I2C driver by writing configuration and
+  reading raw XYZ data.
 - Periodic FreeRTOS health summary on the serial console.
 
 Radio summary is `WARN` until at least one TX succeeds and one peer packet is
@@ -253,10 +255,9 @@ future radio-coprocessor protocol.
 
 #### Serial Monitor Empty On ESP32-S3
 
-- This environment enables `ARDUINO_USB_MODE=1` and
-  `ARDUINO_USB_CDC_ON_BOOT=1`.
+- ESP-IDF logs are written to the configured ESP-IDF console.
 - Press reset after opening the monitor.
-- Confirm the monitor is attached to the USB CDC port, not an external UART.
+- If one USB port is quiet, try the board's USB serial/JTAG port or UART bridge.
 
 #### Wrong PlatformIO Board ID For ESP32-S3
 
@@ -366,9 +367,9 @@ Inspect a GNSS NMEA text log with the host dump tool:
 ## Repository Structure
 
 ```text
-platformio.ini   PlatformIO firmware project for ESP32 hardware health checks.
-include/         Arduino health-check firmware public headers.
-src/             Arduino health-check firmware task implementations.
+platformio.ini   PlatformIO ESP-IDF firmware project for ESP32 health checks.
+include/         ESP-IDF health-check firmware public headers.
+src/             ESP-IDF health-check firmware task implementations.
 core/            Portable C11 navigation core and public headers.
 ports/           Platform adapters. Only POSIX demo exists now.
 docs/            Architecture, data model, logging, replay, and protocol docs.

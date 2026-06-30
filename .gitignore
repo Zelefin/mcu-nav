@@ -10,3 +10,6 @@ build/
 .cache/
 .pytest_cache/
 __pycache__/
+dependencies.lock
+sdkconfig.*
+!sdkconfig.defaults*

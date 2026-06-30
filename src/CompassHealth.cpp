@@ -1,11 +1,15 @@
-#include <Arduino.h>
-#include <Wire.h>
-
 #include "BoardPins.h"
 #include "HealthStatus.h"
 #include "Logger.h"
 
+#include "driver/i2c.h"
+#include "esp_err.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 namespace {
+static constexpr i2c_port_t kI2cPort = I2C_NUM_0;
+static constexpr uint32_t kI2cClockHz = 100000;
 static constexpr uint8_t kQmc5883Address = 0x0D;
 static constexpr uint8_t kRegDataXlsb = 0x00;
 static constexpr uint8_t kRegControl1 = 0x09;
@@ -15,49 +19,42 @@ static constexpr uint32_t kReportIntervalMs = 2000;
 
 CompassHealthStatus status;
 
+TickType_t i2cTimeout() {
+  return pdMS_TO_TICKS(100);
+}
+
 bool writeRegister(uint8_t reg, uint8_t value) {
-  Wire.beginTransmission(kQmc5883Address);
-  Wire.write(reg);
-  Wire.write(value);
-  const uint8_t err = Wire.endTransmission();
+  const uint8_t bytes[2] = {reg, value};
+  const esp_err_t err = i2c_master_write_to_device(kI2cPort, kQmc5883Address, bytes, sizeof(bytes), i2cTimeout());
   status.lastError = err;
-  return err == 0;
+  return err == ESP_OK;
 }
 
 bool readRaw(int16_t *x, int16_t *y, int16_t *z) {
-  Wire.beginTransmission(kQmc5883Address);
-  Wire.write(kRegDataXlsb);
-  uint8_t err = Wire.endTransmission(false);
-  if (err != 0) {
+  if (x == nullptr || y == nullptr || z == nullptr) {
+    status.lastError = ESP_ERR_INVALID_ARG;
+    return false;
+  }
+
+  uint8_t raw[6] = {};
+  uint8_t reg = kRegDataXlsb;
+  const esp_err_t err = i2c_master_write_read_device(kI2cPort, kQmc5883Address, &reg, 1, raw, sizeof(raw), i2cTimeout());
+  if (err != ESP_OK) {
     status.lastError = err;
     return false;
   }
 
-  const uint8_t received = Wire.requestFrom(kQmc5883Address, static_cast<uint8_t>(6));
-  if (received != 6) {
-    status.lastError = received;
-    return false;
-  }
-
-  const uint8_t xLsb = Wire.read();
-  const uint8_t xMsb = Wire.read();
-  const uint8_t yLsb = Wire.read();
-  const uint8_t yMsb = Wire.read();
-  const uint8_t zLsb = Wire.read();
-  const uint8_t zMsb = Wire.read();
-
-  *x = static_cast<int16_t>((static_cast<uint16_t>(xMsb) << 8) | xLsb);
-  *y = static_cast<int16_t>((static_cast<uint16_t>(yMsb) << 8) | yLsb);
-  *z = static_cast<int16_t>((static_cast<uint16_t>(zMsb) << 8) | zLsb);
-  status.lastError = 0;
+  *x = static_cast<int16_t>((static_cast<uint16_t>(raw[1]) << 8) | raw[0]);
+  *y = static_cast<int16_t>((static_cast<uint16_t>(raw[3]) << 8) | raw[2]);
+  *z = static_cast<int16_t>((static_cast<uint16_t>(raw[5]) << 8) | raw[4]);
+  status.lastError = ESP_OK;
   return true;
 }
 
 bool deviceResponds() {
-  Wire.beginTransmission(kQmc5883Address);
-  const uint8_t err = Wire.endTransmission();
+  const esp_err_t err = i2c_master_write_to_device(kI2cPort, kQmc5883Address, nullptr, 0, i2cTimeout());
   status.lastError = err;
-  return err == 0;
+  return err == ESP_OK;
 }
 
 void publishCompassStatus(HealthState state) {
@@ -68,8 +65,25 @@ void publishCompassStatus(HealthState state) {
 
 extern "C" void CompassHealthTask(void *) {
   Logger::infof("COMPASS", "I2C started: SDA=%d SCL=%d", BoardPins::i2cSda, BoardPins::i2cScl);
-  Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
-  Wire.setClock(100000);
+
+  i2c_config_t config = {};
+  config.mode = I2C_MODE_MASTER;
+  config.sda_io_num = static_cast<gpio_num_t>(PIN_I2C_SDA);
+  config.scl_io_num = static_cast<gpio_num_t>(PIN_I2C_SCL);
+  config.sda_pullup_en = GPIO_PULLUP_ENABLE;
+  config.scl_pullup_en = GPIO_PULLUP_ENABLE;
+  config.master.clk_speed = kI2cClockHz;
+
+  esp_err_t err = i2c_param_config(kI2cPort, &config);
+  if (err == ESP_OK) {
+    err = i2c_driver_install(kI2cPort, config.mode, 0, 0, 0);
+  }
+  if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+    status.lastError = err;
+    publishCompassStatus(HealthState::Fail);
+    Logger::failf("COMPASS", "I2C init failed, esp_err=%d", err);
+    vTaskDelete(nullptr);
+  }
 
   bool configured = false;
   int16_t previousX = 0;

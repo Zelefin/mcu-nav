@@ -1,7 +1,5 @@
 #pragma once
 
-#include <Arduino.h>
-
 #ifndef BOARD_NAME
 #error "BOARD_NAME must be supplied by platformio.ini build_flags"
 #endif
