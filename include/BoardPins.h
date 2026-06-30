@@ -44,6 +44,24 @@
 #error "PIN_I2C_SCL must be supplied by platformio.ini build_flags"
 #endif
 
+#ifndef PIN_NOT_CONNECTED
+#define PIN_NOT_CONNECTED (-1)
+#endif
+
+#if defined(TARGET_NODEMCU_32S) && TARGET_NODEMCU_32S
+static_assert(PIN_LORA_SCK == 18, "Wrong NodeMCU-32S LORA SCK pin");
+static_assert(PIN_LORA_MISO == 19, "Wrong NodeMCU-32S LORA MISO pin");
+static_assert(PIN_LORA_MOSI == 23, "Wrong NodeMCU-32S LORA MOSI pin");
+static_assert(PIN_LORA_CS == 5, "Wrong NodeMCU-32S LORA CS pin");
+static_assert(PIN_LORA_RST == 27, "Wrong NodeMCU-32S LORA RST pin");
+static_assert(PIN_LORA_BUSY == 26, "Wrong NodeMCU-32S LORA BUSY pin");
+static_assert(PIN_LORA_DIO1 == 25, "Wrong NodeMCU-32S LORA DIO1 pin");
+static_assert(PIN_LORA_DIO2 == PIN_NOT_CONNECTED || PIN_LORA_DIO2 == 33,
+              "Wrong NodeMCU-32S LORA DIO2 pin; use -1 when not connected or GPIO33 when wired");
+static_assert(PIN_LORA_DIO3 == PIN_NOT_CONNECTED || PIN_LORA_DIO3 == 32,
+              "Wrong NodeMCU-32S LORA DIO3 pin; use -1 when not connected or GPIO32 when wired");
+#endif
+
 #ifndef RADIO_FREQUENCY_MHZ
 #define RADIO_FREQUENCY_MHZ 2445.0
 #endif
@@ -71,6 +89,7 @@
 
 namespace BoardPins {
 static constexpr const char *boardName = BOARD_NAME;
+static constexpr int notConnected = PIN_NOT_CONNECTED;
 
 static constexpr int loraSck = PIN_LORA_SCK;
 static constexpr int loraMiso = PIN_LORA_MISO;

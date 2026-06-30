@@ -33,7 +33,7 @@ settings.
 
 ### Supported Boards
 
-- NodeMCU-32S / NodeMCU-32S Lua
+- NodeMCU-32S
 - ESP32-S3-DEVKITC-1
 
 Board-specific pins are selected by the PlatformIO environment through
@@ -52,10 +52,13 @@ Board-specific pins are selected by the PlatformIO environment through
 | RST | 27 |
 | BUSY | 26 |
 | DIO1 | 25 |
-| DIO2 | 33 |
-| DIO3 | 32 |
+| DIO2 | NC, unused |
+| DIO3 | NC, unused |
 | 3V3 | 3.3 V |
 | GND | GND |
+
+DIO2 and DIO3 are optional for this basic SX128x health check and are left
+unconnected on the NodeMCU-32S wiring.
 
 #### HGLRC M100-5883 GPS
 
@@ -158,7 +161,9 @@ example:
 t=...ms [INFO] [SYSTEM] Booting firmware
 t=...ms [INFO] [SYSTEM] Board: NodeMCU-32S
 t=...ms [INFO] [SYSTEM] Build: Jun 30 2026 12:00:00
-t=...ms [INFO] [SYSTEM] Pin map:
+t=...ms [INFO] [SYSTEM] E28/SX128x pin map:
+t=...ms [INFO] [SYSTEM]   SCK=18 MISO=19 MOSI=23 CS=5
+t=...ms [INFO] [SYSTEM]   RST=27 BUSY=26 DIO1=25 DIO2=NC DIO3=NC
 t=...ms [INFO] [RADIO] Initializing SX128x radio over SPI
 t=...ms [OK] [RADIO] SX128x initialized: freq=2445.0 MHz bw=812.5 kHz sf=7 cr=5 power=2 dBm
 t=...ms [OK] [RADIO] RX listen mode started

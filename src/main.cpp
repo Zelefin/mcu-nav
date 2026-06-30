@@ -2,6 +2,8 @@
 #include "HealthStatus.h"
 #include "Logger.h"
 
+#include <stdio.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -10,19 +12,32 @@ extern "C" void GpsHealthTask(void *param);
 extern "C" void CompassHealthTask(void *param);
 
 namespace {
+const char *pinLabel(int pin, char *buffer, size_t bufferSize) {
+  if (pin == BoardPins::notConnected) {
+    return "NC";
+  }
+  snprintf(buffer, bufferSize, "%d", pin);
+  return buffer;
+}
+
 void printPinMap() {
-  Logger::infof("SYSTEM", "Pin map:");
+  char dio2Label[8];
+  char dio3Label[8];
+
+  Logger::infof("SYSTEM", "E28/SX128x pin map:");
   Logger::infof("SYSTEM",
-                "  LORA SCK=%d MISO=%d MOSI=%d CS=%d RST=%d BUSY=%d DIO1=%d DIO2=%d DIO3=%d",
+                "  SCK=%d MISO=%d MOSI=%d CS=%d",
                 BoardPins::loraSck,
                 BoardPins::loraMiso,
                 BoardPins::loraMosi,
-                BoardPins::loraCs,
+                BoardPins::loraCs);
+  Logger::infof("SYSTEM",
+                "  RST=%d BUSY=%d DIO1=%d DIO2=%s DIO3=%s",
                 BoardPins::loraRst,
                 BoardPins::loraBusy,
                 BoardPins::loraDio1,
-                BoardPins::loraDio2,
-                BoardPins::loraDio3);
+                pinLabel(BoardPins::loraDio2, dio2Label, sizeof(dio2Label)),
+                pinLabel(BoardPins::loraDio3, dio3Label, sizeof(dio3Label)));
   Logger::infof("SYSTEM", "  GPS RX=%d TX=%d", BoardPins::gpsRx, BoardPins::gpsTx);
   Logger::infof("SYSTEM", "  I2C SDA=%d SCL=%d", BoardPins::i2cSda, BoardPins::i2cScl);
 }
