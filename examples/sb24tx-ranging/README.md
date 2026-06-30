@@ -31,6 +31,14 @@ The master prints `corrected_m` as the primary distance. `raw_m` and `raw_reg`
 are still included because short SX1280 ranges below about 20 m need
 application-specific correction.
 
+Each successful line includes `correction=short_exp` or
+`correction=linear_bias`:
+
+- `short_exp`: `biased_raw_m <= 18.5`, so the Semtech-style short-range
+  exponential curve is active.
+- `linear_bias`: `biased_raw_m > 18.5`, so `corrected_m` is only
+  `raw_m + raw_bias_m`; no short-range exponential correction is applied.
+
 The current v0 also applies an empirical `raw_bias_m=6.2` before short-range
 correction. This was chosen from a ~2 m SB24TX sample where raw results were
 clustered around `-3.7 m`; the bias moves that cluster to the Semtech
@@ -93,8 +101,18 @@ platformio -d examples/sb24tx-ranging device monitor
 Successful master output looks like:
 
 ```text
-range_result ok=true attempt=12 corrected_m=2.00 raw_m=-3.70 biased_raw_m=2.50 raw_bias_m=6.20 raw_reg=-164 rssi_dbm=-48 snr_db=8.0 elapsed_ms=24 pa_start=tx pa_result=rx pa_rx_switch_us=3000
+range_result ok=true attempt=12 corrected_m=2.00 correction=short_exp short_limit_m=18.5 raw_m=-3.70 biased_raw_m=2.50 raw_bias_m=6.20 raw_reg=-164 rssi_dbm=-48 snr_db=8.0 elapsed_ms=24 pa_start=tx pa_result=rx pa_rx_switch_us=3000
 ```
+
+For tests beyond 20 m, expect successful lines to switch to:
+
+```text
+correction=linear_bias
+```
+
+At that point `corrected_m` should track `biased_raw_m` directly. This is the
+right regime for checking whether the 2 m empirical bias still holds at larger
+distances.
 
 Failure output looks like:
 
