@@ -3,6 +3,15 @@
 The portable core never prints directly. It emits structured text through
 `nav_logger_t`; ports decide where the records go.
 
+The repository-root ESP-IDF diagnostic firmware logs directly to the configured
+ESP-IDF console with one complete line per write:
+
+```text
+t=1234ms [INFO] [SYSTEM] Health summary: RADIO=OK GPS=WARN COMPASS=OK | ...
+```
+
+The `t=` value is milliseconds elapsed since `Logger::begin()`.
+
 ## Categories And Levels
 
 Categories: `BOOT`, `CONFIG`, `GNSS`, `RADIO_PROTO`, `PEER_TABLE`, `RANGE`,

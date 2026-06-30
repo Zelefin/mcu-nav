@@ -1,0 +1,15 @@
+idf_component_register(
+    SRCS
+        "CompassHealth.cpp"
+        "GpsHealth.cpp"
+        "HealthStatus.cpp"
+        "Logger.cpp"
+        "RadioHealth.cpp"
+        "main.cpp"
+    INCLUDE_DIRS
+        "../include"
+    REQUIRES
+        RadioLib
+        driver
+        esp_timer
+)
