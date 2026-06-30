@@ -1,4 +1,6 @@
 build/
+.pio/
+.vscode/
 *.o
 *.a
 *.so
