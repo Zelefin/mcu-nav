@@ -4,6 +4,10 @@ This directory is reserved for a future ESP32-S3 host port of the navigation
 brain. The portable core must remain independent from ESP-IDF, FreeRTOS, UART
 drivers, and board-specific headers.
 
+For wiring and module bring-up, use the standalone diagnostic firmware in
+[`../esp32-healthcheck`](../esp32-healthcheck/). It checks the radio, GPS, and
+compass modules without integrating them into the navigation core.
+
 Expected responsibilities for this port:
 
 - Adapt GNSS driver samples into `nav_event_t`.
