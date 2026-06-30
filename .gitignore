@@ -1,6 +1,7 @@
 build/
 .pio/
-.vscode/
+.vscode/*
+!.vscode/extensions.json
 *.o
 *.a
 *.so

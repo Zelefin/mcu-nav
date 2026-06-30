@@ -146,6 +146,23 @@ npx skills update    # оновити скіли та перезаписати s
 
 ## 3. Збірка та тести
 
+### 3.1. Рекомендовані VS Code розширення
+
+У репозиторії є файл [`.vscode/extensions.json`](.vscode/extensions.json) із
+рекомендованими розширеннями:
+
+- `platformio.platformio-ide` — збірка, прошивання та керування PlatformIO
+  середовищами.
+- `ms-vscode.vscode-serial-monitor` — перегляд serial output після прошивання.
+- `ms-toolsai.jupyter` — робота з ноутбуками для аналізу логів, сценаріїв або
+  експериментальних даних.
+
+VS Code запропонує встановити їх після відкриття репозиторію. Локальні
+налаштування в `.vscode/` не комітимо; у git має потрапляти лише
+`extensions.json`.
+
+### 3.2. Хост-збірка та CMake-тести
+
 Перед будь-яким PR код має збиратися й проходити тести (детальніше — у
 [README.md](README.md)):
 
@@ -167,6 +184,79 @@ ctest --test-dir build -V -R replay
 ```bash
 python3 -m pip install -r requirements-dev.txt
 ```
+
+### 3.3. Збірка та прошивання ESP32 health-check firmware
+
+Корінь репозиторію є PlatformIO-проєктом для діагностичної ESP32 прошивки, яка
+перевіряє wiring та базову працездатність LoRa/SX128x, GPS і QMC5883 compass.
+Команди нижче запускайте з кореня репозиторію.
+
+Якщо `pio` не доступний у `PATH`, використовуйте повний шлях до PlatformIO:
+
+```bash
+~/.platformio/penv/bin/pio --version
+```
+
+#### NodeMCU-32S / NodeMCU-32S Lua
+
+Зібрати firmware:
+
+```bash
+pio run -e nodemcu-32s
+```
+
+Прошити board:
+
+```bash
+pio run -e nodemcu-32s -t upload
+```
+
+Відкрити serial monitor на 115200 baud:
+
+```bash
+pio device monitor -b 115200
+```
+
+#### ESP32-S3-DEVKITC-1
+
+Зібрати firmware:
+
+```bash
+pio run -e esp32-s3-devkitc-1
+```
+
+Прошити board:
+
+```bash
+pio run -e esp32-s3-devkitc-1 -t upload
+```
+
+Відкрити serial monitor на 115200 baud:
+
+```bash
+pio device monitor -b 115200
+```
+
+Якщо ваша версія PlatformIO не знає board id `esp32-s3-devkitc-1`, знайдіть
+доступний ID і замініть `board = ...` у [platformio.ini](platformio.ini):
+
+```bash
+pio boards espressif32 | grep -i "s3.*devkit"
+```
+
+#### Швидка перевірка перед PR
+
+Перед PR, який змінює health-check firmware або `platformio.ini`, зберіть обидва
+середовища:
+
+```bash
+pio run -e nodemcu-32s
+pio run -e esp32-s3-devkitc-1
+```
+
+Для повної radio TX/RX перевірки потрібні дві плати з однаковою прошивкою та
+однаковими RadioLib build flags. Одна плата може підтвердити radio init і TX,
+але RX підтверджується лише коли друга плата передає сумісні packets.
 
 ---
 
