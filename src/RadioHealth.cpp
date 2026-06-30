@@ -1,26 +1,37 @@
-#include <Arduino.h>
-#include <RadioLib.h>
-#include <SPI.h>
-
 #include "BoardPins.h"
+#include "EspIdfRadioLibHal.h"
 #include "HealthStatus.h"
 #include "Logger.h"
 
+#include <RadioLib.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "driver/gpio.h"
+#include "esp_attr.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 namespace {
-SX1280 radio = new Module(PIN_LORA_CS, PIN_LORA_DIO1, PIN_LORA_RST, PIN_LORA_BUSY);
+EspIdfRadioLibHal radioHal(PIN_LORA_SCK, PIN_LORA_MISO, PIN_LORA_MOSI);
+Module radioModule(&radioHal, PIN_LORA_CS, PIN_LORA_DIO1, PIN_LORA_RST, PIN_LORA_BUSY);
+SX1280 radio(&radioModule);
+
 volatile bool gPacketReceived = false;
 
-#if defined(ESP32)
-IRAM_ATTR
-#endif
-void setRadioPacketReceivedFlag() {
+uint32_t nowMs() {
+  return static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
+}
+
+void IRAM_ATTR setRadioPacketReceivedFlag() {
   gPacketReceived = true;
 }
 
 bool waitBusyLow(uint32_t timeoutMs) {
-  const uint32_t startMs = millis();
-  while (digitalRead(PIN_LORA_BUSY) == HIGH) {
-    if ((millis() - startMs) >= timeoutMs) {
+  const uint32_t startMs = nowMs();
+  while (gpio_get_level(static_cast<gpio_num_t>(PIN_LORA_BUSY)) != 0) {
+    if ((nowMs() - startMs) >= timeoutMs) {
       return false;
     }
     vTaskDelay(pdMS_TO_TICKS(5));
@@ -57,9 +68,13 @@ extern "C" void RadioHealthTask(void *) {
                 BoardPins::loraBusy,
                 BoardPins::loraDio1);
 
-  pinMode(PIN_LORA_BUSY, INPUT);
-  pinMode(PIN_LORA_DIO1, INPUT);
-  SPI.begin(PIN_LORA_SCK, PIN_LORA_MISO, PIN_LORA_MOSI, PIN_LORA_CS);
+  gpio_config_t inputConfig = {};
+  inputConfig.pin_bit_mask = (1ULL << PIN_LORA_BUSY) | (1ULL << PIN_LORA_DIO1);
+  inputConfig.mode = GPIO_MODE_INPUT;
+  inputConfig.pull_up_en = GPIO_PULLUP_DISABLE;
+  inputConfig.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  inputConfig.intr_type = GPIO_INTR_DISABLE;
+  gpio_config(&inputConfig);
 
   if (!waitBusyLow(1000)) {
     status.state = HealthState::Fail;
@@ -107,15 +122,18 @@ extern "C" void RadioHealthTask(void *) {
   }
 
   uint32_t packetSeq = 0;
-  uint32_t lastTxMs = millis();
+  uint32_t lastTxMs = nowMs();
 
   for (;;) {
     if (gPacketReceived) {
       gPacketReceived = false;
 
-      String received;
-      state = radio.readData(received);
+      uint8_t received[128] = {};
+      const size_t packetLength = radio.getPacketLength(true);
+      const size_t readLength = packetLength < (sizeof(received) - 1) ? packetLength : (sizeof(received) - 1);
+      state = radio.readData(received, readLength);
       if (state == RADIOLIB_ERR_NONE) {
+        received[readLength] = '\0';
         status.rxOk = true;
         status.rxOkCount++;
         status.lastError = RADIOLIB_ERR_NONE;
@@ -125,10 +143,10 @@ extern "C" void RadioHealthTask(void *) {
         publishRadioStatus(status);
         Logger::okf("RADIO",
                     "RX packet received: bytes=%u RSSI=%.1f dBm SNR=%.1f dB payload=\"%s\"",
-                    received.length(),
+                    static_cast<unsigned>(packetLength),
                     static_cast<double>(status.lastRssiDbm),
                     static_cast<double>(status.lastSnrDb),
-                    received.c_str());
+                    reinterpret_cast<const char *>(received));
       } else if (state == RADIOLIB_ERR_CRC_MISMATCH) {
         status.lastError = state;
         status.state = HealthState::Warn;
@@ -150,27 +168,41 @@ extern "C" void RadioHealthTask(void *) {
       }
     }
 
-    const uint32_t nowMs = millis();
-    if ((nowMs - lastTxMs) >= RADIO_TX_INTERVAL_MS) {
-      lastTxMs = nowMs;
-      String payload = "mcu-nav-health board=" + String(BoardPins::boardName) +
-                       " seq=" + String(packetSeq++);
+    const uint32_t currentMs = nowMs();
+    if ((currentMs - lastTxMs) >= RADIO_TX_INTERVAL_MS) {
+      lastTxMs = currentMs;
 
-      Logger::debugf("RADIO", "BUSY=%d before TX", digitalRead(PIN_LORA_BUSY));
+      char payload[96];
+      const int payloadLength = snprintf(payload,
+                                         sizeof(payload),
+                                         "mcu-nav-health board=%s seq=%lu",
+                                         BoardPins::boardName,
+                                         static_cast<unsigned long>(packetSeq++));
+      if (payloadLength < 0) {
+        status.lastError = RADIOLIB_ERR_UNKNOWN;
+        status.state = HealthState::Fail;
+        publishRadioStatus(status);
+        Logger::failf("RADIO", "TX payload formatting failed");
+        vTaskDelay(pdMS_TO_TICKS(20));
+        continue;
+      }
+
+      Logger::debugf("RADIO", "BUSY=%d before TX", gpio_get_level(static_cast<gpio_num_t>(PIN_LORA_BUSY)));
       if (!waitBusyLow(1000)) {
         status.lastError = RADIOLIB_ERR_SPI_CMD_TIMEOUT;
         status.state = HealthState::Fail;
         publishRadioStatus(status);
         Logger::failf("RADIO", "BUSY pin stayed HIGH before TX");
       } else {
-        state = radio.transmit(payload);
+        const size_t txLength = static_cast<size_t>(payloadLength) < sizeof(payload) ? static_cast<size_t>(payloadLength) : sizeof(payload) - 1;
+        state = radio.transmit(reinterpret_cast<const uint8_t *>(payload), txLength);
         status.lastError = state;
         if (state == RADIOLIB_ERR_NONE) {
           status.txOk = true;
           status.txOkCount++;
           status.state = radioStateFor(status);
           publishRadioStatus(status);
-          Logger::okf("RADIO", "TX packet sent: bytes=%u payload=\"%s\"", payload.length(), payload.c_str());
+          Logger::okf("RADIO", "TX packet sent: bytes=%u payload=\"%s\"", static_cast<unsigned>(txLength), payload);
         } else {
           status.state = HealthState::Fail;
           publishRadioStatus(status);

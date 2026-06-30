@@ -1,5 +1,6 @@
 #include "Logger.h"
 
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <stdarg.h>
@@ -26,7 +27,7 @@ uint8_t configuredLogLevel() {
 
 bool shouldPrintLevel(const char *level) {
   if (strcmp(level, "ERROR") == 0 || strcmp(level, "FAIL") == 0) {
-    return configuredLogLevel() >= 0;
+    return true;
   }
   if (strcmp(level, "WARN") == 0) {
     return configuredLogLevel() >= 1;
@@ -64,7 +65,7 @@ namespace Logger {
 void begin() {
   if (gLoggerMutex == nullptr) {
     gLoggerMutex = xSemaphoreCreateMutex();
-    gLoggerStartMs = millis();
+    gLoggerStartMs = static_cast<uint32_t>(esp_timer_get_time() / 1000ULL);
   }
 }
 
@@ -80,7 +81,7 @@ void rawf(const char *level, const char *tag, const char *format, va_list args) 
     xSemaphoreTake(gLoggerMutex, portMAX_DELAY);
   }
 
-  const uint32_t elapsedMs = millis() - gLoggerStartMs;
+  const uint32_t elapsedMs = static_cast<uint32_t>(esp_timer_get_time() / 1000ULL) - gLoggerStartMs;
   char line[320];
   const int written = snprintf(line,
                                sizeof(line),
@@ -99,8 +100,8 @@ void rawf(const char *level, const char *tag, const char *format, va_list args) 
       }
     }
 
-    Serial.write(reinterpret_cast<const uint8_t *>(line), lineLength);
-    Serial.flush();
+    fwrite(line, 1, lineLength, stdout);
+    fflush(stdout);
   }
 
   if (gLoggerMutex != nullptr) {

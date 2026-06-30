@@ -197,7 +197,7 @@ python3 -m pip install -r requirements-dev.txt
 ~/.platformio/penv/bin/pio --version
 ```
 
-#### NodeMCU-32S / NodeMCU-32S Lua
+#### NodeMCU-32S
 
 Зібрати firmware:
 
