@@ -17,6 +17,7 @@ static constexpr uint16_t RangingPreambleLength = 12;
 static constexpr uint32_t RangingAddress = 0x53423234UL;  // "SB24"
 static constexpr uint32_t MasterHostTimeoutMs = 350;
 static constexpr uint32_t MasterExchangePeriodMs = 500;
+static constexpr uint32_t MasterArmingDelayMs = 15000;
 static constexpr uint32_t SlaveListenWindowMs = 10000;
 static constexpr uint32_t SlaveArmingDelayMs = 5000;
 
@@ -189,6 +190,28 @@ void printProfile() {
   flushLog();
 }
 
+void runPreRadioArmingDelay(Role selected_role) {
+  const uint32_t delay_ms = selected_role == Role::Master ? MasterArmingDelayMs : SlaveArmingDelayMs;
+  const uint32_t start_ms = millis();
+  uint32_t next_log_ms = start_ms;
+
+  Serial.printf("%s_pre_radio_arming start delay_ms=%lu\r\n",
+                roleName(selected_role),
+                static_cast<unsigned long>(delay_ms));
+  flushLog();
+
+  while ((millis() - start_ms) < delay_ms) {
+    if ((int32_t)(millis() - next_log_ms) >= 0) {
+      Serial.printf("%s_pre_radio_arming remaining_ms=%lu\r\n",
+                    roleName(selected_role),
+                    static_cast<unsigned long>(delay_ms - (millis() - start_ms)));
+      flushLog();
+      next_log_ms = millis() + 1000;
+    }
+    delay(20);
+  }
+}
+
 void fatalRadioInit(int16_t state) {
   for (;;) {
     Serial.printf("radio_init_failed error=%d note=\"SX1280 not ready; check wiring, power, and SPI pins\"\r\n",
@@ -254,6 +277,11 @@ void logMasterFailure(uint32_t elapsed_ms, int16_t error, uint16_t irq, const ch
 void runMasterExchange() {
   attempt_id++;
   const uint32_t started_ms = millis();
+
+  Serial.printf("master_exchange start role=master attempt=%lu timeout_ms=%lu\r\n",
+                static_cast<unsigned long>(attempt_id),
+                static_cast<unsigned long>(MasterHostTimeoutMs));
+  flushLog();
 
   if (!waitBusyLow(1000)) {
     logMasterFailure(millis() - started_ms,
@@ -406,15 +434,17 @@ void setup() {
   Serial.printf("[esp32s3-ranging] role=%s\r\n", roleName(role));
   flushLog();
   printProfile();
+  runPreRadioArmingDelay(role);
   initRadio();
 
   if (role == Role::Master) {
     next_master_exchange_ms = millis();
+    Serial.println("master_ready");
+    flushLog();
   } else {
-    slave_listen_start_ms = millis() + SlaveArmingDelayMs;
+    slave_listen_start_ms = millis();
     next_slave_arming_log_ms = millis();
-    Serial.printf("slave_ready arming_delay_ms=%lu note=\"serial monitor is optional; master logs are primary evidence\"\r\n",
-                  static_cast<unsigned long>(SlaveArmingDelayMs));
+    Serial.println("slave_ready note=\"serial monitor is optional; master logs are primary evidence\"");
     flushLog();
   }
 }

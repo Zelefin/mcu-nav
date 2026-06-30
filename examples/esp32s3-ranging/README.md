@@ -115,6 +115,10 @@ You can also upload and monitor in one command:
 ```
 
 If logs do not appear after upload, open the monitor and press RESET.
+If the monitor prints `waiting for download` or `boot:0x0 (DOWNLOAD(USB/UART0))`,
+the ESP32-S3 is in ROM download mode instead of running the app. Release BOOT,
+disconnect anything pulling GPIO0 low, then reset or unplug/replug the board and
+open the monitor again.
 
 ## Test Workflow
 
