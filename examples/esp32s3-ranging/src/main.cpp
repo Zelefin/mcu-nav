@@ -19,6 +19,10 @@ static constexpr uint32_t MasterHostTimeoutMs = 350;
 static constexpr uint32_t MasterExchangePeriodMs = 500;
 static constexpr uint32_t SlaveListenWindowMs = 10000;
 
+#ifndef FORCE_RANGING_ROLE
+#define FORCE_RANGING_ROLE 0
+#endif
+
 // AN1200.29 defaults; SF7/BW1625 uses value 13528.
 uint16_t RangingCalibration[3][6] = {
     {10299, 10271, 10244, 10242, 10230, 10246},
@@ -42,6 +46,45 @@ const char *roleName(Role value) {
 
 void flushLog() {
   Serial.flush();
+}
+
+void appendFlag(char *buffer, size_t buffer_size, const char *flag) {
+  if (buffer_size == 0) {
+    return;
+  }
+  const size_t used = strlen(buffer);
+  if (used >= buffer_size - 1) {
+    return;
+  }
+  if (used > 0) {
+    strncat(buffer, " ", buffer_size - strlen(buffer) - 1);
+  }
+  strncat(buffer, flag, buffer_size - strlen(buffer) - 1);
+}
+
+void formatIrqFlags(uint16_t irq, char *buffer, size_t buffer_size) {
+  if (buffer_size == 0) {
+    return;
+  }
+  buffer[0] = '\0';
+  if (irq & RADIOLIB_SX128X_IRQ_RANGING_SLAVE_REQ_VALID) {
+    appendFlag(buffer, buffer_size, "slave_req_valid");
+  }
+  if (irq & RADIOLIB_SX128X_IRQ_RANGING_MASTER_TIMEOUT) {
+    appendFlag(buffer, buffer_size, "master_timeout");
+  }
+  if (irq & RADIOLIB_SX128X_IRQ_RANGING_MASTER_RES_VALID) {
+    appendFlag(buffer, buffer_size, "master_result_valid");
+  }
+  if (irq & RADIOLIB_SX128X_IRQ_RANGING_SLAVE_REQ_DISCARD) {
+    appendFlag(buffer, buffer_size, "slave_req_discard");
+  }
+  if (irq & RADIOLIB_SX128X_IRQ_RANGING_SLAVE_RESP_DONE) {
+    appendFlag(buffer, buffer_size, "slave_response_done");
+  }
+  if (irq & RADIOLIB_SX128X_IRQ_RX_TX_TIMEOUT) {
+    appendFlag(buffer, buffer_size, "rx_tx_timeout");
+  }
 }
 
 void setStatusLed(bool on) {
@@ -69,6 +112,15 @@ void blinkStatusDuringRoleWindow(uint32_t now_ms, uint32_t *last_toggle_ms, bool
 }
 
 Role selectRole() {
+#if FORCE_RANGING_ROLE == 1
+  Serial.println("role_select selected=master reason=build_flag");
+  flushLog();
+  return Role::Master;
+#elif FORCE_RANGING_ROLE == 2
+  Serial.println("role_select selected=slave reason=build_flag");
+  flushLog();
+  return Role::Slave;
+#else
   Serial.println();
   Serial.printf("[esp32s3-ranging] role window: press BOOT/GPIO%d within 5s for slave\r\n",
                 BoardPins::boot_select);
@@ -96,6 +148,7 @@ Role selectRole() {
   Serial.println("role_select selected=master reason=timeout");
   flushLog();
   return Role::Master;
+#endif
 }
 
 bool waitBusyLow(uint32_t timeout_ms) {
@@ -182,11 +235,15 @@ bool waitDio1High(uint32_t timeout_ms) {
   return true;
 }
 
-void logMasterFailure(uint32_t elapsed_ms, int16_t error, const char *note) {
-  Serial.printf("range_result ok=false role=master attempt=%lu elapsed_ms=%lu error=%d note=\"%s\"\r\n",
+void logMasterFailure(uint32_t elapsed_ms, int16_t error, uint16_t irq, const char *note) {
+  char flags[96];
+  formatIrqFlags(irq, flags, sizeof(flags));
+  Serial.printf("range_result ok=false role=master attempt=%lu elapsed_ms=%lu error=%d irq=0x%04X flags=\"%s\" note=\"%s\"\r\n",
                 static_cast<unsigned long>(attempt_id),
                 static_cast<unsigned long>(elapsed_ms),
                 error,
+                irq,
+                flags,
                 note);
   flushLog();
 }
@@ -198,30 +255,37 @@ void runMasterExchange() {
   if (!waitBusyLow(1000)) {
     logMasterFailure(millis() - started_ms,
                      RADIOLIB_ERR_SPI_CMD_TIMEOUT,
+                     radio.getIrqStatus(),
                      "BUSY stayed high before ranging; check radio wiring");
     return;
   }
 
+  (void)radio.clearIrqFlags(RADIOLIB_SX128X_IRQ_ALL);
   int16_t state = radio.startRanging(true, RangingAddress, RangingCalibration);
   if (state != RADIOLIB_ERR_NONE) {
     logMasterFailure(millis() - started_ms,
                      state,
+                     radio.getIrqStatus(),
                      "startRanging failed; check radio configuration");
     return;
   }
 
   if (!waitDio1High(MasterHostTimeoutMs)) {
+    const uint16_t irq = radio.getIrqStatus();
     logMasterFailure(millis() - started_ms,
                      RADIOLIB_ERR_RANGING_TIMEOUT,
+                     irq,
                      "ranging timeout; check slave role, power, wiring, address, and RF profile");
     (void)radio.finishRanging();
     return;
   }
 
+  const uint16_t irq = radio.getIrqStatus();
   state = radio.finishRanging();
   if (state != RADIOLIB_ERR_NONE) {
     logMasterFailure(millis() - started_ms,
                      state,
+                     irq,
                      "finishRanging failed after DIO1 event");
     return;
   }
@@ -232,13 +296,17 @@ void runMasterExchange() {
   const float snr_db = radio.getSNR();
   const uint32_t elapsed_ms = millis() - started_ms;
 
-  Serial.printf("range_result ok=true role=master attempt=%lu uncorrected_m=%.2f raw_reg=%ld rssi_dbm=%.1f snr_db=%.1f elapsed_ms=%lu\r\n",
+  char flags[96];
+  formatIrqFlags(irq, flags, sizeof(flags));
+  Serial.printf("range_result ok=true role=master attempt=%lu uncorrected_m=%.2f raw_reg=%ld rssi_dbm=%.1f snr_db=%.1f elapsed_ms=%lu irq=0x%04X flags=\"%s\"\r\n",
                 static_cast<unsigned long>(attempt_id),
                 static_cast<double>(uncorrected_m),
                 static_cast<long>(raw_reg),
                 static_cast<double>(rssi_dbm),
                 static_cast<double>(snr_db),
-                static_cast<unsigned long>(elapsed_ms));
+                static_cast<unsigned long>(elapsed_ms),
+                irq,
+                flags);
   flushLog();
 }
 
@@ -253,30 +321,46 @@ void serviceMaster() {
 void serviceSlave() {
   const uint32_t started_ms = millis();
 
+  (void)radio.clearIrqFlags(RADIOLIB_SX128X_IRQ_ALL);
   int16_t state = radio.startRanging(false, RangingAddress, RangingCalibration);
   if (state != RADIOLIB_ERR_NONE) {
-    Serial.printf("slave_listen ok=false elapsed_ms=%lu error=%d note=\"startRanging failed\"\r\n",
+    const uint16_t irq = radio.getIrqStatus();
+    char flags[96];
+    formatIrqFlags(irq, flags, sizeof(flags));
+    Serial.printf("slave_listen ok=false elapsed_ms=%lu error=%d irq=0x%04X flags=\"%s\" note=\"startRanging failed\"\r\n",
                   static_cast<unsigned long>(millis() - started_ms),
-                  state);
+                  state,
+                  irq,
+                  flags);
     flushLog();
     delay(500);
     return;
   }
 
   if (!waitDio1High(SlaveListenWindowMs)) {
+    const uint16_t irq = radio.getIrqStatus();
     (void)radio.finishRanging();
-    Serial.printf("slave_listen ok=false elapsed_ms=%lu error=%d note=\"no master request observed\"\r\n",
+    char flags[96];
+    formatIrqFlags(irq, flags, sizeof(flags));
+    Serial.printf("slave_listen ok=false elapsed_ms=%lu error=%d irq=0x%04X flags=\"%s\" note=\"no master request observed\"\r\n",
                   static_cast<unsigned long>(millis() - started_ms),
-                  RADIOLIB_ERR_RANGING_TIMEOUT);
+                  RADIOLIB_ERR_RANGING_TIMEOUT,
+                  irq,
+                  flags);
     flushLog();
     return;
   }
 
+  const uint16_t irq = radio.getIrqStatus();
   state = radio.finishRanging();
-  Serial.printf("slave_response ok=%s elapsed_ms=%lu error=%d\r\n",
+  char flags[96];
+  formatIrqFlags(irq, flags, sizeof(flags));
+  Serial.printf("slave_response ok=%s elapsed_ms=%lu error=%d irq=0x%04X flags=\"%s\"\r\n",
                 state == RADIOLIB_ERR_NONE ? "true" : "false",
                 static_cast<unsigned long>(millis() - started_ms),
-                state);
+                state,
+                irq,
+                flags);
   flushLog();
 }
 }  // namespace

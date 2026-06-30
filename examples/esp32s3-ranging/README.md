@@ -17,6 +17,9 @@ One firmware image supports both roles:
 - The slave can run powered only from 5V after role selection; master logs are
   the primary evidence that it is responding.
 
+Optional forced-role PlatformIO environments are also available for diagnostics:
+`esp32-s3-devkitc-1-master` and `esp32-s3-devkitc-1-slave`.
+
 The v0 RF profile is fixed:
 
 ```text
@@ -73,6 +76,13 @@ Flash one board, then flash the other:
 .venv/bin/pio run -d examples/esp32s3-ranging -t upload --upload-port /dev/ttyACM0
 ```
 
+To remove BOOT-button role selection from a test, flash explicit roles:
+
+```bash
+.venv/bin/pio run -d examples/esp32s3-ranging -e esp32-s3-devkitc-1-slave -t upload --upload-port /dev/ttyACM0
+.venv/bin/pio run -d examples/esp32s3-ranging -e esp32-s3-devkitc-1-master -t upload --upload-port /dev/ttyACM0
+```
+
 Open the monitor:
 
 ```bash
@@ -106,7 +116,7 @@ range_result ok=true role=master attempt=12 uncorrected_m=3.42 raw_reg=123 rssi_
 Failure output looks like:
 
 ```text
-range_result ok=false role=master attempt=13 elapsed_ms=350 error=-901 note="ranging timeout; check slave role, power, wiring, address, and RF profile"
+range_result ok=false role=master attempt=13 elapsed_ms=350 error=-901 irq=0x0400 flags="master_timeout" note="ranging timeout; check slave role, power, wiring, address, and RF profile"
 ```
 
 ## Accuracy Caveat
