@@ -53,6 +53,12 @@ The single-file browser tool (Web Serial, desktop Chrome) that talks to one node
 over the control channel to show the network view and change its configuration.
 _Avoid_: Dashboard, GCS, configurator firmware
 
+**NMEA output abstraction**:
+A future output boundary that turns an accepted navigation snapshot into
+GPS-like NMEA sentences for an external consumer without owning flight-controller
+integration or vehicle state.
+_Avoid_: Drone integration, MAVLink, flight-controller adapter
+
 **Mock peer source**:
 An on-device or host source that injects synthetic peer telemetry and range
 events into the navigation core so one physical node can exercise trilateration
@@ -63,6 +69,26 @@ _Avoid_: Stub, fake radio, simulator (reserve "simulator" for host replay)
 A repository-local example used to validate wiring, chip behavior, and a narrow
 hardware capability before production ownership is settled.
 _Avoid_: Production firmware, radio firmware home
+
+**Hardware integration gate**:
+A required board-level verification point that must pass before the work is
+parallelized. It requires four ESP32 nodes flashed and alive, every node
+participating in SX1280 ranging smoke, GNSS/NMEA input evidence, and a real
+trilateration fallback check after disabling GPS on one node through the control
+app.
+_Avoid_: Parallel prep gate, production readiness
+
+**Radio navigation acceptance gate**:
+The radio-solution portion of the hardware integration gate: an accepted radio
+navigation solution from real peer telemetry, fresh SX1280 ranges, and local
+altitude after local GPS is disabled on one node.
+_Avoid_: Boot self-test, packet-only smoke test
+
+**Working PoC**:
+The first verified end-to-end ESP32 setup that passes the hardware integration
+gate and proves real ranging, GNSS input, control-app GPS disable, and
+trilateration fallback on the available boards.
+_Avoid_: Final product, parallel planning phase
 
 **Ranging master**:
 The SX1280 ranging role that initiates a ranging exchange and owns the readable

@@ -59,6 +59,11 @@
 
 ## Milestone 6: ESP32 Hardware Integration
 
+Current PRD and issue-shaped backlog:
+
+- `docs/prd_phase2_real_hardware_navigation.md`
+- `docs/issues/phase2_real_hardware_navigation/README.md`
+
 - ESP-IDF GNSS adapter that stamps portable NMEA samples with system time and
   injects `NAV_EVT_LOCAL_GNSS_SAMPLE`.
 - ESP32 radio task that runs the TDMA scheduler.
