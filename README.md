@@ -6,15 +6,20 @@ This repository owns the main MCU navigation core, host tests, diagnostics,
 documentation, and future host ports. It does not implement the ESP8285/SX1280
 radio firmware, real GNSS hardware drivers, or flight-controller output.
 
-## ESP32 Hardware Health Check
+## ESP Navigation Node Firmware
 
-The repository root is also a PlatformIO + ESP-IDF firmware project for
-checking the wiring and basic module functionality of an ESP32
-navigation-node hardware stack. This firmware is a diagnostic only: it does not
-use `core/`, does not implement ranging, and does not implement the future radio
-protocol.
+The repository root is a PlatformIO firmware project that builds the navigation
+node for three targets (see Supported Boards). The firmware is a thin port over
+the portable `core/`: drivers turn sensor/radio data into `nav_event_t`, the core
+runs the peer table and trilateration, and a USB-serial control channel streams a
+JSON snapshot to the browser control-app and applies its commands. A boot
+self-test checks the radio/GPS/compass wiring before the node runs.
 
-### What It Checks
+A built-in **mock peer source** lets a single board exercise the full navigation
+core and trilateration with no real peers, so most development needs only one
+ESP32 + SX1280 + GPS. See "Single-node development" and "Control app" below.
+
+### Boot Self-Test Checks
 
 - E28-2G4M12SX / SX128x radio over SPI with RadioLib.
 - Radio TX by periodically sending a short LoRa health packet.
@@ -33,11 +38,17 @@ settings.
 
 ### Supported Boards
 
-- NodeMCU-32S
-- ESP32-S3-DEVKITC-1
+| PlatformIO env | Board | MCU | SDK | Sensors |
+| -------------- | ----- | --- | --- | ------- |
+| `nodemcu-32s` | NodeMCU-32S | ESP32 | ESP-IDF | SX1280 + GPS + compass |
+| `esp32-s3-devkitc-1` | ESP32-S3-DEVKITC-1 | ESP32-S3 | ESP-IDF | SX1280 + GPS + compass |
+| `speedybee` | SpeedyBee Nano 2.4G | ESP8285 | Arduino | SX1280 only (no GPS) |
 
-Board-specific pins are selected by the PlatformIO environment through
-`build_flags`; firmware logic is shared by both targets.
+ESP-IDF is not available on the ESP8285, so the SpeedyBee target builds on the
+Arduino/ESP8266 framework but reuses the same portable `core/`; only the driver
+layer differs. The two ESP32 boards select pins through `build_flags`; SpeedyBee
+pins live in `ports/speedybee/include/board_pins.h`. The SpeedyBee board has no
+GPS, so it defaults to trilateration — ideal for debugging ranging.
 
 ### NodeMCU-32S Wiring
 
@@ -140,6 +151,13 @@ Upload to ESP32-S3-DEVKITC-1:
 
 ```bash
 pio run -e esp32-s3-devkitc-1 -t upload
+```
+
+Build and upload for SpeedyBee Nano 2.4G (ESP8285):
+
+```bash
+pio run -e speedybee
+pio run -e speedybee -t upload
 ```
 
 Monitor serial output:
@@ -372,21 +390,42 @@ Inspect a GNSS NMEA text log with the host dump tool:
 ## Repository Structure
 
 ```text
-platformio.ini   PlatformIO ESP-IDF firmware project for ESP32 health checks.
-include/         ESP-IDF health-check firmware public headers.
-src/             ESP-IDF health-check firmware task implementations.
-core/            Portable C11 navigation core and public headers.
-ports/           Platform adapters. Only POSIX demo exists now.
+platformio.ini   PlatformIO project: nodemcu-32s, esp32-s3-devkitc-1, speedybee.
+core/            Portable C11 navigation core, app modules, and public headers.
+                 nav_core / nav_peer_table / nav_trilateration / nav_nmea,
+                 plus nav_mock, nav_serial_json, nav_telemetry, nav_tdma.
+include/, src/   ESP-IDF node firmware: drivers, boot self-test, NodeConfig
+                 (NVS persistence), ControlChannel (USB-serial JSON).
+ports/esp32s3/   ESP-IDF port notes.
+ports/speedybee/ Arduino/ESP8266 SpeedyBee node firmware + SX1280 lib + ranging
+                 reference firmware.
+ports/posix/     Host demo of the single-node mock + control-app JSON flow.
+control-app/     Single-file browser control app (Web Serial, desktop Chrome).
 docs/            Architecture, data model, logging, replay, and protocol docs.
-tools/replay/    Deterministic CSV replay runner.
-tools/gnss/      Host NMEA log dump tool using the portable parser.
-tools/sim/       Deterministic scenario-to-replay-input generator.
-tools/plot/      Replay-output PNG diagnostics.
-tests/           Host C tests for implemented core modules.
-examples/replay/ Deterministic replay fixtures.
-examples/gnss/   Small NMEA parser fixtures.
-examples/scenarios/ Committed deterministic scenario definitions.
-examples/        Captured log examples and scenario/replay fixtures.
+tools/           Host replay runner, NMEA dump, scenario generator, plotter.
+tests/           Host C tests for core and app modules.
+examples/        Replay/GNSS fixtures and committed deterministic scenarios.
+```
+
+### Control App
+
+Open `control-app/index.html` in desktop Chrome or Edge, click Connect, and pick
+the node's USB-serial port. The app shows the network view (peers, distances in
+metres, GPS coordinates, this node's mode/solution) and lets you rename the node,
+toggle GPS on/off (off = trilateration), toggle the mock peer source, and set the
+constant altitude. Changes are persisted on the node (NVS on ESP32, EEPROM on
+SpeedyBee). It talks newline-delimited JSON (see `nav_serial_json`); Web Serial is
+desktop-only.
+
+### Single-Node Development
+
+The node injects synthetic peers from the mock source when mock is enabled, so a
+single board produces a real trilateration solution without four nodes. Toggle it
+from the control app. The same flow runs fully on the host:
+
+```bash
+cmake -S . -B build && cmake --build build
+./build/ports/posix/nav_posix_demo
 ```
 
 ## Read First

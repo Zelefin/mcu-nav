@@ -1,0 +1,62 @@
+#ifndef NAV_TDMA_H
+#define NAV_TDMA_H
+
+#include <stddef.h>
+
+#include "nav/nav_types.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Single-hop TDMA slot scheduler (see CONTEXT.md).
+ *
+ * A frame is a deterministic sequence of fixed-length slots: first one
+ * telemetry slot per member (the member beacons; everyone else listens), then
+ * one ranging slot per unique member pair (the lower-id member initiates the
+ * two-way range; the other listens). Given the wall clock, the scheduler tells a
+ * node what to do in the current slot. Pure and host-testable; the port layer
+ * drives the radio from the returned action. The lowest member id is the TDMA
+ * time authority whose frame timing the others follow. */
+
+typedef enum {
+    NAV_TDMA_LISTEN = 0,    /* receive (peer beacon, or be ranged by a peer) */
+    NAV_TDMA_TX_BEACON,     /* transmit this node's own telemetry beacon */
+    NAV_TDMA_RANGE_PEER     /* initiate a ranging exchange with peer_id */
+} nav_tdma_action_type_t;
+
+typedef struct {
+    nav_tdma_action_type_t type;
+    uint8_t peer_id;       /* target peer for NAV_TDMA_RANGE_PEER */
+    uint32_t slot_index;   /* slot within the current frame */
+    uint32_t frame_index;  /* frame number since epoch */
+} nav_tdma_action_t;
+
+typedef struct {
+    uint8_t members[NAV_MAX_NODES]; /* sorted ascending */
+    size_t member_count;
+    uint8_t local_node_id;
+    uint32_t slot_ms;
+} nav_tdma_t;
+
+void nav_tdma_init(nav_tdma_t *tdma, uint8_t local_node_id, uint32_t slot_ms);
+
+/* Sets the network membership (ids are copied and sorted ascending). Returns
+ * NAV_STATUS_NO_SPACE if count exceeds NAV_MAX_NODES. */
+nav_status_t nav_tdma_set_members(nav_tdma_t *tdma, const uint8_t *ids, size_t count);
+
+/* Total slots in one frame: member_count telemetry slots plus one slot per
+ * unique member pair. */
+size_t nav_tdma_slots_per_frame(const nav_tdma_t *tdma);
+
+/* True if the local node is the TDMA time authority (lowest member id). */
+bool nav_tdma_is_time_authority(const nav_tdma_t *tdma);
+
+/* Resolves the action for the slot active at now_ms. */
+nav_status_t nav_tdma_action_at(const nav_tdma_t *tdma, uint32_t now_ms, nav_tdma_action_t *out);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

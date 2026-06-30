@@ -16,6 +16,10 @@ add_nav_test(test_radio_protocol test_radio_protocol.c)
 add_nav_test(test_trilateration_adapter test_trilateration_adapter.c)
 add_nav_test(test_radio_navigation test_radio_navigation.c)
 add_nav_test(test_nmea_parser test_nmea_parser.c)
+add_nav_test(test_mock test_mock.c)
+add_nav_test(test_serial_json test_serial_json.c)
+add_nav_test(test_telemetry test_telemetry.c)
+add_nav_test(test_tdma test_tdma.c)
 
 function(add_replay_fixture_test name fixture expect_mode expect_solution expect_source expect_reject expect_anchors)
     add_test(

@@ -1,129 +1,101 @@
-# Radio Protocol Contract Draft
+# Radio Protocol (on-device, over-the-air)
 
 ## Purpose
 
-This protocol connects:
+This protocol is the **over-the-air packet format exchanged between nodes** on
+the single-hop TDMA network. Every node drives its SX1280 directly and runs the
+navigation core locally; there is no separate radio coprocessor (see ADR 0002,
+superseded).
 
-```text
-main MCU navigation core <-> radio/ranging coprocessor
-```
+A node uses this protocol to:
 
-The future radio coprocessor owns SX1280/SX1281/SX1262 driver details, ranging
-procedure, beacon TX/RX, radio timing/slots, RSSI/SNR extraction, and radio
-statistics.
+- broadcast its own telemetry beacon (position, velocity, GNSS validity, nav
+  mode) in its TDMA slot, and
+- exchange ranging requests/results with peers during the ranging cycle.
 
-This main MCU repository owns GNSS validity, peer table state, anchor selection,
-trilateration, navigation state machine, structured logs, snapshots, and future
-flight-controller output.
+Each receiving node feeds incoming packets into its own `core/` as `nav_event_t`,
+which builds the per-peer "network view" (system view) and runs trilateration.
 
-This repository defines the main-MCU side contract. It does not implement the
-ESP8285/SX1280 firmware.
+> The **control channel** to the host control-app is a different link: newline
+> delimited JSON over the USB-serial port. It is not this radio protocol. See
+> `docs/data_flow.md` / `nav_serial_json`.
 
 ## Non-Goals
 
 This protocol does not define SX1280 SPI register operations, ELRS behavior, RF
-calibration, antenna tuning, flight-controller protocol, or
-encryption/authentication for v0.
+calibration, antenna tuning, flight-controller protocol, multi-hop relaying, or
+encryption/authentication for v1.
 
 ## Naming Rules
 
-- `frame_seq`: transport frame sequence between MCU and coprocessor.
 - `packet_seq`: radio beacon packet sequence from a peer node.
 - `request_id`: command/result correlation ID for ranging attempts.
 - `range_fail_reason`: radio-layer failure cause.
 - `reject_reason`: navigation-layer anchor/solution rejection cause.
 
-Do not use one generic `sequence` field in public protocol or navigation types.
-
-## Transport Assumptions
-
-For v0, assume UART serial between the main MCU and the coprocessor. Later SPI or
-another transport can reuse the same message layer if it preserves frame
-boundaries and byte order.
+Do not collapse these into one generic `sequence` field in public protocol or
+navigation types.
 
 ## Byte Order And Units
 
-- Integer fields are little-endian.
-- Signed fields use two's-complement representation.
+- Integer fields are little-endian; signed fields are two's-complement.
 - Timestamps are milliseconds.
 - Latitude/longitude use signed e7 degrees: `lat_e7_i32`, `lon_e7_i32`.
 - Altitude uses millimeters: `alt_mm_i32`.
 - Velocity uses millimeters per second: `vel_n_mmps_i32`, etc.
 - Navigation-core ranges are never negative and use `uint32_t range_mm`.
-- Protocol range fields use `range_mm_u32`.
-- If a future wire decoder receives signed range data, negative values must be
-  rejected before producing `nav_range_result_t`.
+  Protocol range fields use `range_mm_u32`; a decoder must reject negative wire
+  range data before producing `nav_range_result_t`.
 - Range sigma uses millimeters: `range_sigma_mm_u32`.
-- RSSI uses dBm: `rssi_dbm_i16`.
-- SNR uses whole dB for v0: `snr_db_i16`.
-- If scaled SNR is introduced later, rename the field explicitly, for example
-  `snr_qdb_i16` or `snr_centi_db_i16`.
+- RSSI uses dBm: `rssi_dbm_i16`. SNR uses whole dB for v1: `snr_db_i16`.
 
-## Frame Format Draft
+## Frame Format
 
-Proposed UART wire frame:
+Current frame in `nav_radio_protocol.c` (used on the air and in host tests):
 
 ```text
-0x00
-COBS(payload)
-0x00
+magic0_u8 magic1_u8 message_type_u8 packet_seq_u16 payload_length_u8 payload[N]
 ```
 
-Decoded payload:
+Air hardening (future): wrap the payload in COBS with a trailing CRC32 so partial
+or corrupted SX1280 receptions are dropped cleanly:
 
 ```text
-magic_u16
-protocol_version_u8
-message_type_u8
-frame_seq_u16
-flags_u16
-payload_length_u16
-payload_bytes[N]
-crc32_u32
+0x00 COBS( magic_u16 protocol_version_u8 message_type_u8 packet_seq_u16
+           flags_u16 payload_length_u16 payload_bytes[N] crc32_u32 ) 0x00
 ```
 
-Implementation status: current code has placeholder encode/decode only. Full
-COBS plus CRC32 framing is specified here for the future radio repo and should
-be implemented later.
+| Feature | Status |
+| ------- | ------ |
+| message enums (`nav_radio_message_type_t`) | implemented |
+| payload structs | implemented |
+| placeholder encode/decode | implemented (host tests + air v1) |
+| COBS + CRC32 air hardening | future |
 
-Current placeholder frame in `nav_radio_protocol.c`:
+## Message Types
 
-```text
-magic0_u8 magic1_u8 message_type_u8 frame_seq_u16 payload_length_u8 payload[N]
-```
+| Message | Sender → Receiver | Purpose | Core event produced |
+| ------- | ----------------- | ------- | ------------------- |
+| `BEACON_RX` (telemetry beacon) | peer → all | Peer telemetry + local RX metadata. | `NAV_EVT_PEER_TELEMETRY_RX` |
+| `REQUEST_RANGE` | node → peer | Start one ranging attempt to a peer. | none directly |
+| `RANGE_RESULT` | peer → node | Successful two-way range result. | `NAV_EVT_RANGE_RESULT` |
+| `RANGE_FAIL` | peer → node | Failed ranging attempt. | `NAV_EVT_RANGE_FAIL` |
+| `HEARTBEAT` | peer → all | Liveness / status flags. | liveness only |
+| `STATUS` / `STATS` | peer → all | Detailed state / link counters. | diagnostics only |
+| `LOG_TEXT` | peer → all | Optional diagnostic text. | diagnostic log only |
 
-It exists only for host tests and enum/type coverage.
-
-## Message Direction Table
-
-| Message | Direction | Ack? | Purpose | Core event produced |
-| ------- | --------- | ---- | ------- | ------------------- |
-| `SET_NODE_ID` | MCU -> Radio | yes | Configure radio node id. | none |
-| `SET_CONFIG` | MCU -> Radio | yes | Configure radio parameters. | none |
-| `SET_SLOT_CONFIG` | MCU -> Radio | yes | Configure TDMA/ranging slot plan. | none |
-| `SEND_BEACON` | MCU -> Radio | optional | Ask radio to transmit current telemetry beacon. | none |
-| `REQUEST_RANGE` | MCU -> Radio | yes | Start one ranging attempt to a peer. | none directly |
-| `GET_STATUS` | MCU -> Radio | yes | Request radio status. | none |
-| `RESET` | MCU -> Radio | yes | Reset radio coprocessor. | none |
-| `HEARTBEAT` | Radio -> MCU | no | Liveness and status flags. | diagnostics only |
-| `STATUS` | Radio -> MCU | no | Detailed radio state. | diagnostics only |
-| `BEACON_RX` | Radio -> MCU | no | Peer telemetry plus receive metadata. | `NAV_EVT_PEER_TELEMETRY_RX` |
-| `RANGE_RESULT` | Radio -> MCU | no | Successful ranging result. | `NAV_EVT_RANGE_RESULT` |
-| `RANGE_FAIL` | Radio -> MCU | no | Failed ranging attempt. | `NAV_EVT_RANGE_FAIL` |
-| `STATS` | Radio -> MCU | no | Link/ranging counters. | diagnostics only |
-| `LOG_TEXT` | Radio -> MCU | no | Coprocessor diagnostic text. | diagnostic log only |
+`SET_NODE_ID` / `SET_CONFIG` are **local configuration** applied on the node
+(now via the control-app over USB-serial), not air messages.
 
 ## Payload Schemas
 
 The public header mirrors these schemas as typed payload structs. Do not
-serialize raw C structs directly unless packing and alignment are explicitly
-controlled by the transport implementation.
+serialize raw C structs directly unless packing and alignment are controlled.
 
-### `BEACON_RX`
+### `BEACON_RX` (telemetry beacon)
 
-`BEACON_RX` contains peer telemetry plus local receive metadata. The telemetry
-fields are what the remote peer claims. `rssi_dbm_i16` and `snr_db_i16` are local
-diagnostics measured by the receiving radio.
+Telemetry fields are what the remote peer claims. `rssi_dbm_i16` and `snr_db_i16`
+are local diagnostics measured by the receiving radio.
 
 ```text
 peer_id_u8
@@ -143,16 +115,7 @@ snr_db_i16
 reserved_u8
 ```
 
-Host mapping:
-
-```text
-nav_peer_beacon_rx_t {
-    telemetry.packet_seq = packet_seq_u32
-    telemetry.position = lat/lon/alt fields
-    rssi_dbm = rssi_dbm_i16
-    snr_db = snr_db_i16
-}
-```
+Maps to `nav_peer_beacon_rx_t` → `NAV_EVT_PEER_TELEMETRY_RX`.
 
 ### `RANGE_RESULT`
 
@@ -168,8 +131,8 @@ attempt_count_u8
 request_id_u16
 ```
 
-Host mapping: `nav_range_result_t`. `range_mm` must be positive before the
-navigation core can use it as an anchor.
+Maps to `nav_range_result_t`. `range_mm` must be positive before the navigation
+core can use it as an anchor.
 
 ### `RANGE_FAIL`
 
@@ -183,28 +146,11 @@ last_snr_db_i16
 request_id_u16
 ```
 
-Host mapping: `nav_range_failure_t` with `nav_range_fail_reason_t`.
-
-Radio fail reason and navigation reject reason are intentionally separate:
+Maps to `nav_range_failure_t` with `nav_range_fail_reason_t`. Radio fail reason
+and navigation reject reason stay separate:
 
 - `range_fail_reason`: why the radio/ranging attempt failed.
 - `reject_reason`: why the navigation core rejected an anchor or solution.
-
-Example: `NAV_RANGE_FAIL_TIMEOUT` can make a range stale later, which may lead to
-`NAV_REJECT_STALE_RANGE`, but those are different decisions at different layers.
-
-### `STATUS`
-
-```text
-node_id_u8
-radio_mode_u8
-radio_fw_version_u32
-uptime_ms_u32
-last_error_u16
-capability_flags_u32
-```
-
-Diagnostics only. It does not directly affect solve input.
 
 ### `HEARTBEAT`
 
@@ -212,14 +158,6 @@ Diagnostics only. It does not directly affect solve input.
 node_id_u8
 uptime_ms_u32
 status_flags_u32
-```
-
-Used for liveness and heartbeat timeout handling.
-
-### `SET_NODE_ID`
-
-```text
-node_id_u8
 ```
 
 ### `REQUEST_RANGE`
@@ -234,7 +172,7 @@ timeout_ms_u16
 
 ## Range Failure Reasons
 
-`nav_range_fail_reason_t` currently defines:
+`nav_range_fail_reason_t`:
 
 - `NAV_RANGE_FAIL_NONE`
 - `NAV_RANGE_FAIL_TIMEOUT`
@@ -247,98 +185,37 @@ timeout_ms_u16
 
 These are radio-layer causes and must not be stored as `nav_reject_reason_t`.
 
-## Sequence, ACK, And Timeout Rules
+## TDMA Timing (single-hop)
 
-- `frame_seq` increments per transmitted transport frame.
-- Config/control commands should be ACKed.
-- Streaming events such as `BEACON_RX` and `RANGE_RESULT` do not need ACK in v0.
-- Receiver can detect `frame_seq` gaps but does not need retransmission in v0.
-- Suggested command timeout: 250 ms on UART.
-- Suggested heartbeat interval: 1000 ms.
-- Suggested heartbeat timeout: 3000 ms before declaring coprocessor stale.
-
-ACK payload details are not implemented yet.
+- One node is the configured **TDMA time authority**; its heartbeat defines the
+  frame timing (see CONTEXT.md).
+- A frame interleaves a **telemetry cycle** (each node beacons in its slot) and a
+  **ranging cycle** (a scheduled pass over unique peer pairs).
+- Streaming events (`BEACON_RX`, `RANGE_RESULT`) are not ACKed in v1.
 
 ## Mapping To `nav_event_t`
 
-- `BEACON_RX` -> `NAV_EVT_PEER_TELEMETRY_RX` carrying `nav_peer_beacon_rx_t`
-- `RANGE_RESULT` -> `NAV_EVT_RANGE_RESULT`
-- `RANGE_FAIL` -> `NAV_EVT_RANGE_FAIL`
-- `STATUS` -> diagnostics only
-- `HEARTBEAT` -> diagnostics/liveness only
-- `LOG_TEXT` -> diagnostic log only
+- `BEACON_RX` → `NAV_EVT_PEER_TELEMETRY_RX` carrying `nav_peer_beacon_rx_t`
+- `RANGE_RESULT` → `NAV_EVT_RANGE_RESULT`
+- `RANGE_FAIL` → `NAV_EVT_RANGE_FAIL`
+- `STATUS` / `HEARTBEAT` / `STATS` / `LOG_TEXT` → diagnostics / liveness only
 
-Local GNSS and local altitude samples are produced by main-MCU sensors, replay,
-or simulation, not by the radio coprocessor.
-
-## Cross-Repo Stability Notes
-
-Once the ESP8285/SX1280 repository begins, changes to message IDs, payload
-schemas, units, enum values, or field names must be deliberate and documented.
-The radio repo and this main MCU repo should update together when contract
-changes are made.
-
-## Implementation Status
-
-| Feature | Specified | Implemented in this repo | Notes |
-| ------- | --------: | -----------------------: | ----- |
-| message enums | yes | yes | `nav_radio_message_type_t` |
-| payload structs | yes | yes | Header structs mirror draft fields |
-| placeholder encode/decode | yes | yes | Small host-test frame, not final wire format |
-| COBS framing | yes | no | Future milestone |
-| CRC32 | yes | no | Future milestone |
-| ACK handling | draft | no | Future milestone |
-| timeout handling | draft | no | Port/radio milestone |
-| serial driver | no | no | Belongs in `ports/` or radio repo |
-| ESP8285 firmware | no | no | Separate future repository |
+Local GNSS and local altitude samples are produced by the node's own sensors
+(or the mock injector / replay), not by the radio.
 
 ## Example Decoded Messages
 
 `RANGE_RESULT` from peer 2:
 
 ```text
-message_type=RANGE_RESULT
-frame_seq=42
-peer_id_u8=2
-request_id_u16=77
-range_status_u8=0
-radio_timestamp_ms_u32=123456
-range_mm_u32=621957
-range_sigma_mm_u32=100
-rssi_dbm_i16=-61
-snr_db_i16=10
-attempt_count_u8=1
+message_type=RANGE_RESULT packet_seq=42
+peer_id_u8=2 request_id_u16=77 range_status_u8=0
+radio_timestamp_ms_u32=123456 range_mm_u32=621957 range_sigma_mm_u32=100
+rssi_dbm_i16=-61 snr_db_i16=10 attempt_count_u8=1
 ```
 
 Host mapping:
 
 ```text
 NAV_EVT_RANGE_RESULT peer_id=2 request_id=77 range_mm=621957 range_sigma_mm=100 rssi_dbm=-61 snr_db=10
-```
-
-`BEACON_RX` from peer 3:
-
-```text
-message_type=BEACON_RX
-frame_seq=43
-peer_id_u8=3
-packet_seq_u32=104
-radio_timestamp_ms_u32=123500
-lat_e7_i32=504510000
-lon_e7_i32=305340000
-alt_mm_i32=175000
-vel_n_mmps_i32=0
-vel_e_mmps_i32=0
-vel_d_mmps_i32=0
-gnss_fix_type_u8=3
-gnss_valid_u8=1
-nav_mode_u8=2
-rssi_dbm_i16=-64
-snr_db_i16=9
-```
-
-Host mapping:
-
-```text
-NAV_EVT_PEER_TELEMETRY_RX node_id=3 packet_seq=104 lat_e7=504510000 lon_e7=305340000 alt_mm=175000 rssi_dbm=-64 snr_db=9
 ```

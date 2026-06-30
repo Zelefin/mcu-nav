@@ -1,6 +1,8 @@
 #include "BoardPins.h"
+#include "ControlChannel.h"
 #include "HealthStatus.h"
 #include "Logger.h"
+#include "NodeConfig.h"
 
 #include <stdio.h>
 
@@ -73,10 +75,15 @@ extern "C" void app_main(void) {
   Logger::infof("SYSTEM", "Build: %s %s", __DATE__, __TIME__);
   printPinMap();
 
+  // Boot self-test: prove the radio/GPS/compass wiring before running the node.
   xTaskCreate(RadioHealthTask, "RadioHealthTask", 8192, nullptr, 2, nullptr);
   xTaskCreate(GpsHealthTask, "GpsHealthTask", 6144, nullptr, 1, nullptr);
   xTaskCreate(CompassHealthTask, "CompassHealthTask", 4096, nullptr, 1, nullptr);
   xTaskCreate(HealthReporterTask, "HealthReporterTask", 4096, nullptr, 1, nullptr);
+
+  // Node application: persisted config + navigation core + control channel.
+  NodeConfig config = NodeConfigStore::load(/*defaultNodeId=*/0u);
+  ControlChannel::begin(config);
 
   for (;;) {
     vTaskDelay(pdMS_TO_TICKS(1000));
