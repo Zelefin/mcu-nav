@@ -12,10 +12,14 @@
    `NAV_EVT_LOCAL_GNSS_SAMPLE` у `core/`.
 2. **Радіо TX/TDMA.** У TX-слоті (`nav_tdma_action_at` → `NAV_TDMA_TX_BEACON`)
    запакувати власну телеметрію через `nav_telemetry_encode_beacon` і передати по
-   SX1280. У ranging-слоті (`NAV_TDMA_RANGE_PEER`) запустити ranging-обмін.
+   SX1280. У ranging-слоті (`NAV_TDMA_RANGE_PEER`) запустити апаратний
+   SX1280 ranging engine, а не оцінку дистанції з RSSI чи packet timing.
 3. **Радіо RX → подія ядра.** Прийняті байти SX1280 → `nav_telemetry_decode_event`
    → `nav_core_handle_event` (телеметрія сусідів / ranging-результати).
-4. **Замінити mock на реальні дані** як основне джерело; `nav_mock` лишити як
+4. **Pair ranges для control-app.** Ranging payload має нести `from_id`/`to_id`,
+   щоб нода могла показувати відстані між будь-якою парою вузлів, включно з
+   third-party парами, де локальна нода не є endpoint.
+5. **Замінити mock на реальні дані** як основне джерело; `nav_mock` лишити як
    опційний debug-режим (тогл уже є в control-app/ControlChannel).
 
 Після цього: реальна нода будує network view і трилатерується з фізичних
@@ -37,6 +41,10 @@
   `nav_telemetry_decode_event`.
 - **Розклад**: [core/include/nav/nav_tdma.h](core/include/nav/nav_tdma.h) —
   `nav_tdma_action_at(now_ms)` → TX_BEACON / RANGE_PEER / LISTEN.
+- **ESP32-S3 ranging приклад**: [examples/esp32s3-ranging](examples/esp32s3-ranging)
+  — self-contained ESP-IDF/RadioLib приклад з `startRanging(true/false, ...)`,
+  `finishRanging()`, `getRangingResultRaw()` і `getRangingResult()`. Це головний
+  reference для ESP32 ranging-slot інтеграції.
 - **SpeedyBee радіо**: [ports/speedybee/lib/SX1280](ports/speedybee/lib/SX1280) +
   референс-прошивка ranging [ports/speedybee/reference/ranging_main.cpp](ports/speedybee/reference/ranging_main.cpp)
   (готовий ranging-обмін master/slave, калібрування, bias-корекція).
@@ -68,17 +76,43 @@
 - `NAV_STATUS_NOT_IMPLEMENTED`/`BAD_FRAME` — тихо ігнорувати (лог trace).
 
 ### 2.4 Ranging
-- На `NAV_TDMA_RANGE_PEER(peer)` — ініціювати two-way ranging (взяти процедуру з
-  `ports/speedybee/reference/ranging_main.cpp`); результат → `nav_range_result_t`
-  → `NAV_EVT_RANGE_RESULT`. Невдача → `NAV_EVT_RANGE_FAIL`.
+- На `NAV_TDMA_RANGE_PEER(peer)` — ініціювати two-way ranging через SX1280
+  ranging engine. Для ESP32 брати процедуру з
+  `examples/esp32s3-ranging/src/main.cpp`: scheduled initiator працює як
+  ranging master (`startRanging(true, ...)`), peer у цьому слоті слухає як
+  ranging slave (`startRanging(false, ...)`), після DIO1/timeout викликається
+  `finishRanging()`.
+- Успішний master result (`getRangingResultRaw()` / `getRangingResult()`, після
+  обраної calibration/correction політики) → `nav_range_result_t` →
+  `NAV_EVT_RANGE_RESULT`. Невдача/timeout/BUSY/engine error →
+  `NAV_EVT_RANGE_FAIL`.
+- Перед hardware TDMA інтеграцією розширити range/result/fail payload з
+  implicit-local `peer_id` до endpoint-bearing `from_id`/`to_id`: `from_id` =
+  scheduled initiator / SX1280 ranging master, `to_id` = scheduled peer /
+  SX1280 ranging slave.
+- RSSI/SNR з ranging exchange логувати і передавати як diagnostics, але не
+  використовувати як distance source.
 - Узгодити RF-профіль (freq/SF/BW/калібрування) між усіма нодами; винести в
   build_flags (як у `platformio.ini`).
 
-### 2.5 Членство мережі (TDMA members)
+### 2.5 Pair-range store + control-app
+- Додати окреме сховище pair-range observations, не змішуючи його з
+  `nav_peer_state_t` anchor fields. Локальні endpoint ranges можуть оновлювати
+  peer table для solver; third-party ranges мають лишатися network-health даними.
+- Розширити serial JSON для control-app: додати `ranges[]` або малу матрицю з
+  `from_id`, `to_id`, `range_mm`, freshness/age, validity, RSSI/SNR,
+  `request_id`, `range_fail_reason`.
+- Оновити `control-app/index.html`, щоб бачити A-B/A-C/B-C range health на
+  кожній ноді, навіть коли локальна нода не є endpoint конкретного range.
+- В одному changeset з C API зміною оновити `docs/replay_csv.md`, replay
+  fixtures і replay/telemetry/serial-json тести, щоб `from_id`/`to_id` були
+  replayable та deterministic.
+
+### 2.6 Членство мережі (TDMA members)
 - Поки що задати членів статично з конфіга (список node_id). Пізніше —
   автовиявлення з прийнятої телеметрії. `nav_tdma_set_members(...)`.
 
-### 2.6 Mock як опційний режим
+### 2.7 Mock як опційний режим
 - Залишити `nav_mock` під `gConfig.mockEnabled`; коли увімкнено — інжектити
   замість/поверх радіо (для дебагу однієї плати). За замовчуванням на ESP32 — off
   (реальне радіо), на SpeedyBee — за потреби.
@@ -95,8 +129,9 @@
 - Збірка 3 env: `pio run -e nodemcu-32s`, `-e esp32-s3-devkitc-1`, `-e speedybee`
   (через `~/.platformio/penv/bin/pio`).
 - На залізі: 2 ESP32 поряд → у control-app взаємно видно ноди, ranging у метрах,
-  телеметрія оновлюється; з GPS — координати, без GPS — трилатерація. 2 SpeedyBee
-  → дебаг ranging без GPS.
+  телеметрія оновлюється; 3+ ESP32 → кожна нода бачить pair ranges між іншими
+  нодами; з GPS — координати, без GPS — трилатерація. 2 SpeedyBee → дебаг
+  ranging без GPS.
 
 ## Контекст: що вже зроблено (попередні сесії)
 - **Фаза 0**: видалено `ports/stm32`, `examples/sb24tx`; ADR 0002 superseded;

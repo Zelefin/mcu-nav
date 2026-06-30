@@ -7,8 +7,9 @@ drivers, POSIX, or board APIs.
 
 ## Rationale
 
-The same navigation behavior must run in host tests, simulator/replay, ESP32-S3,
-and STM32 ports. A portable core keeps decisions testable and comparable.
+The same navigation behavior must run in host tests, simulator/replay, ESP32
+firmware, and any future ports. A portable core keeps decisions testable and
+comparable.
 
 ## Consequences
 

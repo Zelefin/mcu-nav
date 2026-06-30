@@ -57,8 +57,20 @@
 - Future: platform UART adapters, UTC/PPS time handling, UBX parsing if needed,
   and velocity derivation from RMC.
 
-## Milestone 6: Hardware Host Ports
+## Milestone 6: ESP32 Hardware Integration
 
-- ESP32-S3 host adapter.
-- STM32 host adapter.
-- Keep all platform code under `ports/`.
+- ESP-IDF GNSS adapter that stamps portable NMEA samples with system time and
+  injects `NAV_EVT_LOCAL_GNSS_SAMPLE`.
+- ESP32 radio task that runs the TDMA scheduler.
+- Telemetry slots use normal SX1280 packet TX/RX and `nav_telemetry` frames.
+- Ranging slots use the SX1280 ranging engine, following the proven
+  `examples/esp32s3-ranging` RadioLib workflow.
+- Successful ranging-engine results are injected as `NAV_EVT_RANGE_RESULT`;
+  failures are injected as `NAV_EVT_RANGE_FAIL`.
+- Range result/failure payloads move from implicit local `peer_id` semantics to
+  explicit `from_id` / `to_id` endpoint pairs so every node can record
+  third-party pair ranges for network health and the control app.
+- Local-endpoint ranges update the anchor peer table; third-party pair ranges
+  are stored separately until the solver explicitly supports inter-peer
+  constraints.
+- Keep all platform code out of `core/`.

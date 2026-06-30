@@ -33,7 +33,15 @@ calibration_sf7_bw1625=13528
 
 The master prints `uncorrected_m` as the primary distance. This is RadioLib's
 SX1280 conversion without the empirical `<20m` short-range correction used by
-`examples/sb24tx-ranging`.
+the SpeedyBee ranging reference firmware.
+
+## Navigation Integration Notes
+
+In the production TDMA radio task, this example's `master` role maps to
+`from_id` and the `slave` role maps to `to_id` for a scheduled ranging slot. The
+master-readable SX1280 result becomes the pair range for those two endpoints.
+If another node receives the result, it should display it as third-party
+network-health data rather than treating it as a local anchor distance.
 
 ## Wiring
 

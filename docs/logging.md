@@ -94,6 +94,11 @@ Range update:
 t=1000 level=INFO cat=RANGE event=range_update peer=2 request_id=77 range_mm=621957 range_sigma_mm=100 valid=1 rssi_dbm=-61 snr_db=10
 ```
 
+Current range logs use `peer` because replay/core range events are
+local-to-peer. When endpoint-bearing TDMA ranges are implemented, range logs
+should include `from_id` and `to_id`; third-party pair ranges should be logged
+as network-health observations instead of anchor updates.
+
 ## Replay Outputs
 
 `nav_replay` writes deterministic CSV/log outputs from host replay fixtures:

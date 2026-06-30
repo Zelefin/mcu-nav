@@ -1,8 +1,8 @@
 # GNSS NMEA Parser
 
 The portable NMEA parser converts a byte stream into `nav_gnss_sample_t`
-records. It is an adapter layer for future UART ports; it does not own a UART,
-file descriptor, task, interrupt, DMA channel, or hardware driver.
+records. It is an adapter layer for platform UART readers; it does not own a
+UART, file descriptor, task, interrupt, DMA channel, or hardware driver.
 
 ```mermaid
 flowchart LR
@@ -112,7 +112,8 @@ remains the forced-denied outcome.
 
 ## Limitations
 
-- No ESP32-S3 or STM32 UART driver is implemented.
+- No hardware-to-core ESP-IDF GNSS event adapter is implemented yet. The root
+  firmware has GPS UART health reading, while this parser remains portable.
 - No u-blox UBX binary parser is implemented.
 - No leap-second, date, UTC-to-monotonic, or PPS synchronization logic is
   implemented.

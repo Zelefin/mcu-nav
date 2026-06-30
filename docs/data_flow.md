@@ -41,18 +41,37 @@ but does not use them as `NAV_SOURCE_LOCAL_GNSS`.
 
 ## Range Update
 
+Distance measurements are produced by the SX1280 ranging engine in a scheduled
+TDMA ranging slot. The platform radio driver converts the readable ranging
+result into a range event. The current host/replay event uses an implicit local
+endpoint plus `peer_id`; the ESP32 TDMA integration must carry explicit
+`from_id` / `to_id` endpoints so third-party pair ranges can be displayed by the
+control app. RSSI/SNR remain diagnostics; they are not distance inputs.
+
 ```mermaid
 sequenceDiagram
-    participant Port
+    participant Port as ESP32 radio port
+    participant SX as SX1280 ranging engine
     participant Core
     participant PeerTable
+    participant PairRanges as Pair range view
     participant Log
 
-    Port->>Core: NAV_EVT_RANGE_RESULT
-    Core->>PeerTable: nav_peer_table_update_range()
+    Port->>SX: start ranging master/slave for scheduled pair
+    SX-->>Port: range_mm or radio failure
+    Port->>Core: RANGE_RESULT(from_id, to_id, request_id)
+    alt local node is one endpoint
+        Core->>PeerTable: update local-to-peer anchor range
+    else local node is neither endpoint
+        Core->>PairRanges: update third-party pair observation
+    end
     Core->>Log: RANGE range_update
     Core->>Core: attempt snapshot update
 ```
+
+Third-party pair observations are for network health, diagnostics, replay, and
+`control-app/`. They do not make a peer usable as an anchor for the local solver
+unless one endpoint of the range is the local node.
 
 ## Radio Navigation Solve Attempt
 

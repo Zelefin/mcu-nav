@@ -53,6 +53,27 @@ Beacon packet sequencing and ranging request correlation are separate:
 
 RSSI/SNR are receive diagnostics, not peer-reported telemetry.
 
+## Pair Range Observations
+
+`nav_peer_state_t` is the current local-to-peer anchor state. It is intentionally
+not enough for a whole-network range view, because a node can overhear or receive
+a range result for a pair where it is neither endpoint.
+
+The ESP32 TDMA/ranging integration should add a separate pair-range model for
+range observations identified by:
+
+- `from_id`: scheduled ranging initiator / SX1280 ranging master.
+- `to_id`: scheduled ranging peer / SX1280 ranging slave.
+- `request_id`: ranging attempt correlation id.
+- `range_mm`, `range_sigma_mm`, validity, freshness, RSSI/SNR diagnostics, and
+  `range_fail_reason` for failed attempts.
+
+If one endpoint is the local node, the other endpoint may update the existing
+per-peer anchor range used by the solver. If neither endpoint is local, the
+observation is third-party network-health data for logs, replay, and
+`control-app/`; it must not be treated as a local anchor distance unless the
+solver is explicitly extended to consume inter-peer constraints.
+
 ## Anchor Selection
 
 `nav_anchor_t` is the compact solve input:

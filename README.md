@@ -2,9 +2,10 @@
 
 Portable navigation-brain firmware for a group UAV navigation system.
 
-This repository owns the main MCU navigation core, host tests, diagnostics,
-documentation, and future host ports. It does not implement the ESP8285/SX1280
-radio firmware, real GNSS hardware drivers, or flight-controller output.
+This repository owns the main MCU navigation core, ESP navigation-node firmware,
+host tests, diagnostics, documentation, and replay/simulation tools. It does
+not own separate SX1280 radio firmware, production GNSS hardware adapters, or
+flight-controller output.
 
 ## ESP Navigation Node Firmware
 
@@ -208,8 +209,8 @@ modules wired. Power both boards and monitor either serial console.
   `RADIO_SYNC_WORD`, and `RADIO_PREAMBLE_LEN` build flags.
 - Default frequency is 2445 MHz. Keep antennas attached while transmitting.
 
-This is a packet smoke test, not time-of-arrival, ranging, slotting, or the
-future radio-coprocessor protocol.
+This is a packet smoke test, not SX1280 ranging, TDMA slotting, or the
+navigation telemetry/ranging protocol.
 
 ### Hardware Safety
 
@@ -299,6 +300,15 @@ board ID from your installed PlatformIO version.
 - C11 portable `nav_core` static library builds on Linux.
 - Event-in, snapshot/log-out architecture is implemented.
 - Peer telemetry and range results update a deterministic peer table.
+- Real node-to-node distance is planned to come from the SX1280 ranging engine
+  in TDMA ranging slots, not from RSSI or software packet timing. The
+  self-contained `examples/esp32s3-ranging` firmware proves the ESP32-S3
+  RadioLib ranging-engine workflow that should be integrated into the navigation
+  radio task.
+- Hardware TDMA range payloads still need to move from implicit local `peer_id`
+  semantics to explicit `from_id` / `to_id` endpoints so every node can display
+  third-party pair ranges in the control app. Only ranges where one endpoint is
+  local should feed the current anchor solver.
 - Forced GPS-denied mode can solve a `RADIO_3D` position from three fresh
   GPS-good peer anchors, three ranges, and a valid local altitude sample.
 - Snapshot diagnostics include an explicit solution source, so forced-denied
@@ -318,8 +328,8 @@ board ID from your installed PlatformIO version.
   `solution.csv`, `peers.csv`, and `compare_report.json`.
 - Portable NMEA parser converts `$GPGGA`/`$GNGGA` and `$GPRMC`/`$GNRMC` byte
   streams into `nav_gnss_sample_t` for `NAV_EVT_LOCAL_GNSS_SAMPLE`.
-- Real hardware ports, UART drivers, radio firmware, UBX parsing, and
-  FC/MAVLink output remain future work.
+- Real GPS/radio event adapters, UBX parsing, full TDMA ranging integration,
+  and FC/MAVLink output remain future work.
 
 ## Build And Test
 
@@ -390,6 +400,7 @@ Inspect a GNSS NMEA text log with the host dump tool:
 ## Repository Structure
 
 ```text
+CHANGELOG.md     PR-level summary of notable project changes.
 platformio.ini   PlatformIO project: nodemcu-32s, esp32-s3-devkitc-1, speedybee.
 core/            Portable C11 navigation core, app modules, and public headers.
                  nav_core / nav_peer_table / nav_trilateration / nav_nmea,
@@ -414,8 +425,10 @@ the node's USB-serial port. The app shows the network view (peers, distances in
 metres, GPS coordinates, this node's mode/solution) and lets you rename the node,
 toggle GPS on/off (off = trilateration), toggle the mock peer source, and set the
 constant altitude. Changes are persisted on the node (NVS on ESP32, EEPROM on
-SpeedyBee). It talks newline-delimited JSON (see `nav_serial_json`); Web Serial is
-desktop-only.
+SpeedyBee). The next radio/control update should add pair-range output
+(`from_id`, `to_id`, distance, freshness, validity, diagnostics) so the UI can
+show distances between non-local nodes as network-health data. It talks
+newline-delimited JSON (see `nav_serial_json`); Web Serial is desktop-only.
 
 ### Single-Node Development
 
@@ -457,6 +470,9 @@ cmake -S . -B build && cmake --build build
 ## Next Milestones
 
 1. Add a platform UART adapter that stamps parsed NMEA samples with system time.
-2. Add ESP32-S3/STM32 host adapters without platform dependencies in `core/`.
-3. Implement full radio protocol framing with COBS, CRC32, ACKs, and timeouts.
-4. Expand plot diagnostics beyond PNGs and `plot_summary.json`.
+2. Integrate ESP32 TDMA radio task: telemetry slots in packet mode, ranging
+   slots through the SX1280 ranging engine.
+3. Extend range events/protocol/control JSON from implicit `peer_id` ranges to
+   endpoint-bearing `from_id` / `to_id` pair ranges.
+4. Implement full radio protocol framing with COBS, CRC32, ACKs, and timeouts.
+5. Expand plot diagnostics beyond PNGs and `plot_summary.json`.
