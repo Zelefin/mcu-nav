@@ -90,15 +90,16 @@ Open the monitor:
 ```
 
 For the ESP32-S3 USB CDC/JTAG port, opening the serial reader after upload can
-miss startup logs. The reliable workflow is to open the reader first, then press
-RESET on the board:
+miss one-shot startup logs. The slave emits repeated listen logs, so read it
+directly after upload:
 
 ```bash
-stty -F /dev/ttyACM0 115200 raw -echo
+stty -F /dev/ttyACM0 115200 raw -echo -hupcl
 cat /dev/ttyACM0
 ```
 
-Then press RESET. For a forced slave build, expect:
+Pressing RESET can make `cat` exit when USB CDC re-enumerates; if that happens,
+run the `stty` and `cat` commands again. For a forced slave build, expect:
 
 ```text
 role_select selected=slave reason=build_flag
