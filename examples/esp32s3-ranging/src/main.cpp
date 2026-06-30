@@ -344,7 +344,27 @@ void serviceSlave() {
     return;
   }
 
-  if (!waitDio1High(SlaveListenWindowMs)) {
+  uint32_t next_log_ms = started_ms;
+  while (digitalRead(BoardPins::lora_dio1) == LOW &&
+         (millis() - started_ms) < SlaveListenWindowMs) {
+    if ((int32_t)(millis() - next_log_ms) >= 0) {
+      const uint16_t irq = radio.getIrqStatus();
+      char flags[96];
+      formatIrqFlags(irq, flags, sizeof(flags));
+      Serial.printf("slave_listen alive elapsed_ms=%lu remaining_ms=%lu busy=%d dio1=%d irq=0x%04X flags=\"%s\"\r\n",
+                    static_cast<unsigned long>(millis() - started_ms),
+                    static_cast<unsigned long>(SlaveListenWindowMs - (millis() - started_ms)),
+                    digitalRead(BoardPins::lora_busy),
+                    digitalRead(BoardPins::lora_dio1),
+                    irq,
+                    flags);
+      flushLog();
+      next_log_ms = millis() + 1000;
+    }
+    delay(20);
+  }
+
+  if (digitalRead(BoardPins::lora_dio1) == LOW) {
     const uint16_t irq = radio.getIrqStatus();
     (void)radio.finishRanging();
     char flags[96];
