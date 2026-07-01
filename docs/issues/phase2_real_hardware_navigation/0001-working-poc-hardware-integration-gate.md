@@ -12,6 +12,13 @@ visible on GPS-equipped nodes; and that one node can have GPS disabled through
 the control app and still produce a real trilateration fallback from peer
 telemetry, fresh ranges, and local altitude.
 
+Current implementation starts with a narrower Distance-only ranging PoC:
+persisted node IDs are configured through the control app, each node alternates
+between addressed slave listening and active master scans, and no GNSS positions
+or `RADIO_3D` solution are required for this first radio-distance check. GPS
+and compass runtime health tasks are disabled in this firmware slice, so
+GNSS/NMEA and compass evidence remains deferred until the full gate resumes.
+
 ## Acceptance criteria
 
 - [ ] Two `esp32-s3-devkitc-1` nodes and two `nodemcu-32s` nodes are flashed
@@ -33,6 +40,18 @@ telemetry, fresh ranges, and local altitude.
       navigation outcome.
 - [ ] Any firmware changes made only to pass this gate are documented as
       bring-up changes, not hidden as permanent architecture.
+
+## Distance-only acceptance subset
+
+- [ ] Each board can be assigned a unique persisted node ID from the control app.
+- [ ] A node logs successful `range_result ok=true from=<self> to=<peer>` lines
+      for at least one powered peer while other nodes log slave responses.
+- [ ] The control app can connect to any node and discover observed nodes and
+      single-hop pairs from received serial telemetry, not from static UI rows.
+- [ ] The control-app distance-only view renders missing GPS-derived peer fields
+      as `—`, not as misleading zero coordinates.
+- [ ] The distance-only result is documented as ranging evidence only, not as
+      trilateration or `RADIO_3D`.
 
 ## Blocked by
 

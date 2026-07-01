@@ -9,6 +9,14 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#ifndef NAV_ENABLE_GPS_HEALTH
+#define NAV_ENABLE_GPS_HEALTH 0
+#endif
+
+#ifndef NAV_ENABLE_COMPASS_HEALTH
+#define NAV_ENABLE_COMPASS_HEALTH 0
+#endif
+
 extern "C" void RadioHealthTask(void *param);
 extern "C" void GpsHealthTask(void *param);
 extern "C" void CompassHealthTask(void *param);
@@ -44,6 +52,20 @@ void printPinMap() {
   Logger::infof("SYSTEM", "  I2C SDA=%d SCL=%d", BoardPins::i2cSda, BoardPins::i2cScl);
 }
 
+void markGpsDisabled() {
+  GpsHealthStatus status = {};
+  status.state = HealthState::Disabled;
+  HealthStatus::setGps(status);
+  Logger::infof("GPS", "disabled for distance-only firmware");
+}
+
+void markCompassDisabled() {
+  CompassHealthStatus status = {};
+  status.state = HealthState::Disabled;
+  HealthStatus::setCompass(status);
+  Logger::infof("COMPASS", "disabled for distance-only firmware");
+}
+
 void HealthReporterTask(void *) {
   for (;;) {
     SystemHealth health = HealthStatus::snapshot();
@@ -75,15 +97,26 @@ extern "C" void app_main(void) {
   Logger::infof("SYSTEM", "Build: %s %s", __DATE__, __TIME__);
   printPinMap();
 
-  // Boot self-test: prove the radio/GPS/compass wiring before running the node.
-  xTaskCreate(RadioHealthTask, "RadioHealthTask", 8192, nullptr, 2, nullptr);
-  xTaskCreate(GpsHealthTask, "GpsHealthTask", 6144, nullptr, 1, nullptr);
-  xTaskCreate(CompassHealthTask, "CompassHealthTask", 4096, nullptr, 1, nullptr);
-  xTaskCreate(HealthReporterTask, "HealthReporterTask", 4096, nullptr, 1, nullptr);
-
   // Node application: persisted config + navigation core + control channel.
   NodeConfig config = NodeConfigStore::load(/*defaultNodeId=*/0u);
   ControlChannel::begin(config);
+
+  // Boot self-test and distance-only ranging bring-up.
+  xTaskCreate(RadioHealthTask, "RadioHealthTask", 8192, nullptr, 2, nullptr);
+
+#if NAV_ENABLE_GPS_HEALTH
+  xTaskCreate(GpsHealthTask, "GpsHealthTask", 6144, nullptr, 1, nullptr);
+#else
+  markGpsDisabled();
+#endif
+
+#if NAV_ENABLE_COMPASS_HEALTH
+  xTaskCreate(CompassHealthTask, "CompassHealthTask", 4096, nullptr, 1, nullptr);
+#else
+  markCompassDisabled();
+#endif
+
+  xTaskCreate(HealthReporterTask, "HealthReporterTask", 4096, nullptr, 1, nullptr);
 
   for (;;) {
     vTaskDelay(pdMS_TO_TICKS(1000));

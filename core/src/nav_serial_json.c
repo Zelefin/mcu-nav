@@ -219,6 +219,13 @@ nav_status_t nav_serial_parse_command(const char *line, nav_ctrl_command_t *out)
         out->type = NAV_CTRL_CMD_SET_ALTITUDE;
         return extract_int(line, "alt_mm", &out->int_value) ? NAV_STATUS_OK : NAV_STATUS_BAD_FRAME;
     }
+    if (strcmp(cmd, "node_id") == 0) {
+        out->type = NAV_CTRL_CMD_SET_NODE_ID;
+        if (!extract_int(line, "id", &out->int_value)) {
+            return NAV_STATUS_BAD_FRAME;
+        }
+        return out->int_value >= 0 && out->int_value < (int32_t)NAV_MAX_NODES ? NAV_STATUS_OK : NAV_STATUS_BAD_FRAME;
+    }
 
     out->type = NAV_CTRL_CMD_UNKNOWN;
     return NAV_STATUS_OK;

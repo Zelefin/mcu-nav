@@ -25,6 +25,12 @@ Create a serial first milestone that proves the available hardware end to end:
 - trilateration fallback from real peer telemetry, fresh ranges, and local
   altitude.
 
+The first firmware slice may be narrower: a Distance-only ranging PoC where
+each node alternates between addressed slave listening and active master scans
+to discover its own single-hop SX1280 range links without GNSS or a `RADIO_3D`
+navigation solution. That slice provides radio-distance evidence but does not
+replace the full Hardware integration gate.
+
 Only after the Working PoC passes should the project open a contribution
 backlog. That backlog is issue-shaped and independently grabbable, but it is not
 assigned to fixed participants. Each issue states its prerequisites, acceptance

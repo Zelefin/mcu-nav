@@ -73,6 +73,13 @@ Third-party pair observations are for network health, diagnostics, replay, and
 `control-app/`. They do not make a peer usable as an anchor for the local solver
 unless one endpoint of the range is the local node.
 
+The current ESP32 distance-only firmware implements this as a bring-up path:
+after each local SX1280 ranging attempt, the ranging master broadcasts a compact
+best-effort `range_result` text report. Nodes that hear it log the same
+endpoint-bearing observation with `source=air_report`, allowing the control app
+connected to one node to show pairs measured by other nodes. This report path is
+diagnostic only and is not the final replay/core endpoint-bearing contract.
+
 ## Radio Navigation Solve Attempt
 
 ```mermaid

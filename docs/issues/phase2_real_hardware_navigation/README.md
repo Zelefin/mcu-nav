@@ -11,6 +11,11 @@ Do not start the rest of the backlog until that Working PoC passes. After it
 passes, contributors can choose the next highest-value issue based on project
 needs and personal fit.
 
+The first firmware slice may be a Distance-only ranging PoC: each node alternates
+between addressed slave listening and active master scans to discover its own
+single-hop SX1280 range links without GNSS. Treat that as radio-distance
+evidence, not as completion of the full Working PoC.
+
 ## Backlog
 
 1. [Working PoC Hardware Integration Gate](0001-working-poc-hardware-integration-gate.md)

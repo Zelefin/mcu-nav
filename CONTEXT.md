@@ -90,6 +90,11 @@ gate and proves real ranging, GNSS input, control-app GPS disable, and
 trilateration fallback on the available boards.
 _Avoid_: Final product, parallel planning phase
 
+**Distance-only ranging PoC**:
+A narrower bring-up step that proves SX1280 distance measurements between
+modules without GNSS positions or a radio navigation solution.
+_Avoid_: Trilateration, GPS-denied navigation, `RADIO_3D`
+
 **Ranging master**:
 The SX1280 ranging role that initiates a ranging exchange and owns the readable
 distance result.

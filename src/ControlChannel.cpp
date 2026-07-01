@@ -16,6 +16,10 @@
 #include "nav/nav_serial_json.h"
 #include "nav/nav_state_machine.h"
 
+#ifndef NAV_ENABLE_GPS_HEALTH
+#define NAV_ENABLE_GPS_HEALTH 0
+#endif
+
 namespace {
 
 constexpr uint32_t kSnapshotPeriodMs = 500u;
@@ -33,8 +37,27 @@ void emitIntoCore(const nav_event_t *event, void *user) {
 
 uint32_t nowMs() { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
 
+void seedMock();
+
+bool effectiveGpsEnabled() {
+#if NAV_ENABLE_GPS_HEALTH
+  return gConfig.gpsEnabled;
+#else
+  return false;
+#endif
+}
+
 void applyCoreConfig() {
-  gNav.config.demo_force_gps_denied = !gConfig.gpsEnabled;
+  gNav.config.demo_force_gps_denied = !effectiveGpsEnabled();
+}
+
+void initCoreForConfig() {
+  nav_config_t cfg = nav_config_default(gConfig.nodeId);
+  cfg.min_anchor_triangle_area_m2 = 10.0f;
+  cfg.degraded_anchor_triangle_area_m2 = 100.0f;
+  nav_core_init(&gNav, &cfg);
+  applyCoreConfig();
+  seedMock();
 }
 
 // Default debug scene so a lone board has something to trilaterate against when
@@ -75,10 +98,17 @@ void applyCommand(const nav_ctrl_command_t &cmd) {
       Logger::infof("CONFIG", "node name set to %s", gConfig.name);
       break;
     case NAV_CTRL_CMD_SET_GPS:
+#if NAV_ENABLE_GPS_HEALTH
       gConfig.gpsEnabled = cmd.bool_value;
       applyCoreConfig();
       changed = true;
       Logger::infof("CONFIG", "GPS %s", gConfig.gpsEnabled ? "enabled" : "disabled (trilateration)");
+#else
+      gConfig.gpsEnabled = false;
+      applyCoreConfig();
+      changed = true;
+      Logger::infof("CONFIG", "GPS command ignored: hardware GPS is disabled in this firmware");
+#endif
       break;
     case NAV_CTRL_CMD_SET_MOCK:
       gConfig.mockEnabled = cmd.bool_value;
@@ -90,6 +120,13 @@ void applyCommand(const nav_ctrl_command_t &cmd) {
       gConfig.altitudeMm = cmd.int_value;
       changed = true;
       Logger::infof("CONFIG", "altitude const set to %ld mm", static_cast<long>(gConfig.altitudeMm));
+      break;
+    case NAV_CTRL_CMD_SET_NODE_ID:
+      gConfig.nodeId = static_cast<uint8_t>(cmd.int_value);
+      std::snprintf(gConfig.name, sizeof(gConfig.name), "node-%u", static_cast<unsigned>(gConfig.nodeId));
+      initCoreForConfig();
+      changed = true;
+      Logger::infof("CONFIG", "node id set to %u", static_cast<unsigned>(gConfig.nodeId));
       break;
     case NAV_CTRL_CMD_GET:
     case NAV_CTRL_CMD_UNKNOWN:
@@ -147,7 +184,7 @@ void EmitterTask(void *) {
     nav_serial_node_info_t info;
     info.node_id = gConfig.nodeId;
     info.node_name = gConfig.name;
-    info.gps_enabled = gConfig.gpsEnabled;
+    info.gps_enabled = effectiveGpsEnabled();
     info.mock_enabled = gConfig.mockEnabled;
     nav_serial_write_snapshot(buf, sizeof(buf), &info, &snapshot, &gNav.peer_table);
     xSemaphoreGive(gMutex);
@@ -163,20 +200,39 @@ namespace ControlChannel {
 
 void begin(const NodeConfig &config) {
   gConfig = config;
-
-  nav_config_t cfg = nav_config_default(config.nodeId);
-  cfg.min_anchor_triangle_area_m2 = 10.0f;
-  cfg.degraded_anchor_triangle_area_m2 = 100.0f;
-  nav_core_init(&gNav, &cfg);
-  applyCoreConfig();
-  seedMock();
+#if !NAV_ENABLE_GPS_HEALTH
+  gConfig.gpsEnabled = false;
+#endif
 
   gMutex = xSemaphoreCreateMutex();
+  xSemaphoreTake(gMutex, portMAX_DELAY);
+  initCoreForConfig();
+  xSemaphoreGive(gMutex);
   xTaskCreate(ReaderTask, "ctrlReader", 4096, nullptr, 2, nullptr);
   xTaskCreate(EmitterTask, "ctrlEmitter", 6144, nullptr, 2, nullptr);
   Logger::infof("CONFIG", "control channel started (node=%s id=%u gps=%d mock=%d)", gConfig.name,
-                static_cast<unsigned>(gConfig.nodeId), gConfig.gpsEnabled ? 1 : 0,
+                static_cast<unsigned>(gConfig.nodeId), effectiveGpsEnabled() ? 1 : 0,
                 gConfig.mockEnabled ? 1 : 0);
+}
+
+bool getConfig(NodeConfig *out) {
+  if (out == nullptr || gMutex == nullptr) {
+    return false;
+  }
+  xSemaphoreTake(gMutex, portMAX_DELAY);
+  *out = gConfig;
+  xSemaphoreGive(gMutex);
+  return true;
+}
+
+bool handleEvent(const nav_event_t *event) {
+  if (event == nullptr || gMutex == nullptr) {
+    return false;
+  }
+  xSemaphoreTake(gMutex, portMAX_DELAY);
+  nav_core_handle_event(&gNav, event);
+  xSemaphoreGive(gMutex);
+  return true;
 }
 
 }  // namespace ControlChannel

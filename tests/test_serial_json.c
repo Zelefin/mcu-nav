@@ -26,6 +26,12 @@ static void test_parse(void)
     assert(cmd.type == NAV_CTRL_CMD_SET_ALTITUDE);
     assert(cmd.int_value == 183500);
 
+    assert(nav_serial_parse_command("{\"cmd\":\"node_id\",\"id\":3}", &cmd) == NAV_STATUS_OK);
+    assert(cmd.type == NAV_CTRL_CMD_SET_NODE_ID);
+    assert(cmd.int_value == 3);
+
+    assert(nav_serial_parse_command("{\"cmd\":\"node_id\",\"id\":4}", &cmd) == NAV_STATUS_BAD_FRAME);
+
     assert(nav_serial_parse_command("{\"cmd\":\"frobnicate\"}", &cmd) == NAV_STATUS_OK);
     assert(cmd.type == NAV_CTRL_CMD_UNKNOWN);
 

@@ -31,6 +31,7 @@ typedef enum {
     NAV_CTRL_CMD_SET_MOCK,     /* bool_value: enable mock peer source */
     NAV_CTRL_CMD_SET_NAME,     /* str_value: new node name */
     NAV_CTRL_CMD_SET_ALTITUDE, /* int_value: constant altitude in mm */
+    NAV_CTRL_CMD_SET_NODE_ID,  /* int_value: local node id */
     NAV_CTRL_CMD_UNKNOWN
 } nav_ctrl_cmd_type_t;
 
