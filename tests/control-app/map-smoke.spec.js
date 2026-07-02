@@ -20,6 +20,10 @@ test("offline demo fixture renders GNSS and no-GPS markers", async ({ page }, te
   await page.locator("#fullscreenMap").click();
   await expect.poll(() => page.evaluate(() => !!(document.fullscreenElement || document.webkitFullscreenElement))).toBe(true);
   await expect(page.locator("#fullscreenMap")).toHaveText("Exit full");
+  await expect.poll(async () => page.locator("#map").evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    return window.innerHeight - box.height;
+  })).toBeLessThan(90);
   await page.locator("#fullscreenMap").click();
   await expect.poll(() => page.evaluate(() => !!(document.fullscreenElement || document.webkitFullscreenElement))).toBe(false);
   await expect(page.locator("#fullscreenMap")).toHaveText("Fullscreen");

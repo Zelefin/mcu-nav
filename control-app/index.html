@@ -25,13 +25,22 @@
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; min-width:0; overflow:hidden; }
   .panel h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 12px; }
   .map-block { margin:-16px -16px 16px; border-bottom:1px solid var(--line); }
-  .map-block:fullscreen { margin:0; border:0; background:var(--panel); display:flex; flex-direction:column; width:100vw; height:100vh; }
-  .map-block:-webkit-full-screen { margin:0; border:0; background:var(--panel); display:flex; flex-direction:column; width:100vw; height:100vh; }
-  .map-block:fullscreen #map, .map-block:-webkit-full-screen #map { flex:1 1 auto; height:auto; min-height:0; }
+  .map-block.is-fullscreen,
+  .map-block:fullscreen,
+  .map-block:-webkit-full-screen { position:fixed; inset:0; z-index:1000; margin:0; border:0; background:var(--panel); display:flex; flex-direction:column; width:100vw; height:100vh; height:100dvh; }
+  .map-block.is-fullscreen #map,
+  .map-block:fullscreen #map,
+  .map-block:-webkit-full-screen #map { flex:1 1 auto; height:calc(100vh - 49px) !important; height:calc(100dvh - 49px) !important; min-height:0; }
+  .map-block.is-fullscreen .maplibregl-canvas-container,
+  .map-block.is-fullscreen .maplibregl-canvas,
+  .map-block:fullscreen .maplibregl-canvas-container,
+  .map-block:fullscreen .maplibregl-canvas,
+  .map-block:-webkit-full-screen .maplibregl-canvas-container,
+  .map-block:-webkit-full-screen .maplibregl-canvas { height:100% !important; }
   .map-head { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
   .map-head h2 { margin:0; }
   .map-head .pill { border-radius:6px; }
-  #map { height:440px; min-height:320px; position:relative; overflow:hidden; background:#d7dbc9; }
+  #map { height:560px; min-height:360px; position:relative; overflow:hidden; background:#d7dbc9; }
   .plot-layer { position:absolute; inset:0; background:
     linear-gradient(rgba(48,83,109,.18) 1px, transparent 1px),
     linear-gradient(90deg, rgba(48,83,109,.18) 1px, transparent 1px),
@@ -106,7 +115,7 @@
     .data-table td::before { content:attr(data-label); color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
     .data-table .num { text-align:left; white-space:normal; }
     .state-cell { justify-content:flex-start; }
-    #map { height:360px; }
+    #map { height:430px; }
   }
 </style>
 </head>
@@ -845,24 +854,32 @@ async function toggleMapFullscreen() {
 
   try {
     if (fullscreenElement()) {
+      target.classList.remove("is-fullscreen");
       if (document.exitFullscreen) {
         await document.exitFullscreen();
       } else if (document.webkitExitFullscreen) {
         document.webkitExitFullscreen();
       }
-    } else if (target.requestFullscreen) {
-      await target.requestFullscreen();
-    } else if (target.webkitRequestFullscreen) {
-      target.webkitRequestFullscreen();
+    } else {
+      target.classList.add("is-fullscreen");
+      if (target.requestFullscreen) {
+        await target.requestFullscreen();
+      } else if (target.webkitRequestFullscreen) {
+        target.webkitRequestFullscreen();
+      }
     }
   } catch (err) {
+    target.classList.toggle("is-fullscreen", !!fullscreenElement());
     logLine(`[map fullscreen failed: ${err?.message || err}]`);
   }
   resizeMapSoon();
 }
 
 function updateFullscreenButton() {
-  $("fullscreenMap").textContent = fullscreenElement() ? "Exit full" : "Fullscreen";
+  const isFullscreen = !!fullscreenElement();
+  const target = mapFullscreenTarget();
+  if (target) target.classList.toggle("is-fullscreen", isFullscreen);
+  $("fullscreenMap").textContent = isFullscreen ? "Exit full" : "Fullscreen";
   resizeMapSoon();
 }
 
