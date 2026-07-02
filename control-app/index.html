@@ -25,6 +25,9 @@
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; min-width:0; overflow:hidden; }
   .panel h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 12px; }
   .map-block { margin:-16px -16px 16px; border-bottom:1px solid var(--line); }
+  .map-block:fullscreen { margin:0; border:0; background:var(--panel); display:flex; flex-direction:column; width:100vw; height:100vh; }
+  .map-block:-webkit-full-screen { margin:0; border:0; background:var(--panel); display:flex; flex-direction:column; width:100vw; height:100vh; }
+  .map-block:fullscreen #map, .map-block:-webkit-full-screen #map { flex:1 1 auto; height:auto; min-height:0; }
   .map-head { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
   .map-head h2 { margin:0; }
   .map-head .pill { border-radius:6px; }
@@ -35,7 +38,7 @@
     radial-gradient(circle at 50% 50%, rgba(84,133,88,.16), transparent 45%),
     #d7dbc9; background-size:64px 64px,64px 64px,100% 100%,100% 100%; }
   .map-empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:13px; pointer-events:none; }
-  .node-marker { display:flex; align-items:center; gap:6px; color:var(--fg); filter:drop-shadow(0 2px 5px rgba(0,0,0,.55)); transform:translate(-50%,-50%); }
+  .node-marker { display:inline-flex; align-items:center; gap:6px; width:max-content; max-width:max-content; color:var(--fg); filter:drop-shadow(0 2px 5px rgba(0,0,0,.55)); transform:translate(-50%,-50%); }
   .maplibregl-marker .node-marker { transform:none; }
   .node-dot { width:16px; height:16px; border-radius:50%; border:2px solid #e6edf3; background:var(--accent); box-shadow:0 0 0 3px rgba(77,163,255,.22); flex:0 0 16px; }
   .node-label { max-width:220px; padding:2px 7px; border-radius:5px; background:rgba(15,18,22,.88); border:1px solid rgba(230,237,243,.16); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font:12px/1.35 ui-monospace,Menlo,Consolas,monospace; }
@@ -160,6 +163,7 @@
         <span id="mapStatus" class="pill">plot</span>
         <span class="grow"></span>
         <button id="demoMap">Demo</button>
+        <button id="fullscreenMap">Fullscreen</button>
         <button id="recenterMap">Recenter</button>
       </div>
       <div id="map">
@@ -700,8 +704,8 @@ async function initMap() {
     $("plotLayer").style.display = "none";
     setMapStatus("offline map", "on");
     renderMap();
-    map.on("dragstart", () => { mapAutoFollow = false; });
-    map.on("zoomstart", () => { mapAutoFollow = false; });
+    map.on("dragstart", (event) => { if (event.originalEvent) mapAutoFollow = false; });
+    map.on("zoomstart", (event) => { if (event.originalEvent) mapAutoFollow = false; });
     map.on("load", () => {
       map.resize();
       renderMap();
@@ -720,8 +724,8 @@ async function initMap() {
   }
 }
 
-function fitMapPositions(positions) {
-  if (!positions.length || !mapAutoFollow) return;
+function fitMapPositions(positions, force = false) {
+  if (!positions.length || (!mapAutoFollow && !force)) return;
   if (mapMode === "map" && map) {
     const bounds = new maplibregl.LngLatBounds();
     for (const pos of positions) bounds.extend([pos.lon, pos.lat]);
@@ -791,7 +795,8 @@ function renderMapLibreMarkers(positions) {
     } else {
       marker.setLngLat([pos.lon, pos.lat]);
       const el = marker.getElement();
-      el.className = positionClass(pos);
+      const mapLibreClasses = Array.from(el.classList).filter((className) => className.startsWith("maplibregl-marker"));
+      el.className = [...mapLibreClasses, ...positionClass(pos).split(" ")].join(" ");
       el.title = markerElement(pos).title;
       el.querySelector(".node-label").textContent = pos.label;
     }
@@ -804,7 +809,7 @@ function renderMapLibreMarkers(positions) {
   }
 }
 
-function renderMap() {
+function renderMap(forceFit = false) {
   const positions = snapshotMapPositions();
   $("mapEmpty").style.display = positions.length ? "none" : "flex";
   if (mapMode === "map" && map) {
@@ -814,7 +819,51 @@ function renderMap() {
   } else {
     renderPlotMarkers(positions);
   }
-  fitMapPositions(positions);
+  fitMapPositions(positions, forceFit);
+}
+
+function fullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+
+function mapFullscreenTarget() {
+  return document.querySelector(".map-block");
+}
+
+function resizeMapSoon() {
+  for (const delayMs of [80, 300, 700]) {
+    setTimeout(() => {
+      if (map) map.resize();
+      renderMap(true);
+    }, delayMs);
+  }
+}
+
+async function toggleMapFullscreen() {
+  const target = mapFullscreenTarget();
+  if (!target) return;
+
+  try {
+    if (fullscreenElement()) {
+      if (document.exitFullscreen) {
+        await document.exitFullscreen();
+      } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+      }
+    } else if (target.requestFullscreen) {
+      await target.requestFullscreen();
+    } else if (target.webkitRequestFullscreen) {
+      target.webkitRequestFullscreen();
+    }
+  } catch (err) {
+    logLine(`[map fullscreen failed: ${err?.message || err}]`);
+  }
+  resizeMapSoon();
+}
+
+function updateFullscreenButton() {
+  $("fullscreenMap").textContent = fullscreenElement() ? "Exit full" : "Fullscreen";
+  resizeMapSoon();
 }
 
 function renderDistanceObservations() {
@@ -1097,10 +1146,13 @@ $("gpsToggle").onclick = () => sendCommand({ cmd: "gps", enabled: !lastGps });
 $("mockToggle").onclick = () => sendCommand({ cmd: "mock", enabled: !lastMock });
 $("setAlt").onclick = () => { const v = parseInt($("altInput").value, 10); if (!Number.isNaN(v)) sendCommand({ cmd: "alt", alt_mm: v }); };
 $("demoMap").onclick = loadDemo;
+$("fullscreenMap").onclick = toggleMapFullscreen;
 $("recenterMap").onclick = () => {
   mapAutoFollow = true;
   renderMap();
 };
+document.addEventListener("fullscreenchange", updateFullscreenButton);
+document.addEventListener("webkitfullscreenchange", updateFullscreenButton);
 $("nodeNames").addEventListener("input", (event) => {
   const id = parseInt(event.target.dataset.nodeNameId, 10);
   if (Number.isNaN(id)) return;

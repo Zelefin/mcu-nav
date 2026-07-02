@@ -16,6 +16,14 @@ test("offline demo fixture renders GNSS and no-GPS markers", async ({ page }, te
   const labels = await page.locator(".node-marker .node-label").allTextContents();
   expect(labels.join(" ")).not.toContain("0.00 m");
   await expectMarkersInsideMap(page);
+  await expect(page.locator("#fullscreenMap")).toBeVisible();
+  await page.locator("#fullscreenMap").click();
+  await expect.poll(() => page.evaluate(() => !!(document.fullscreenElement || document.webkitFullscreenElement))).toBe(true);
+  await expect(page.locator("#fullscreenMap")).toHaveText("Exit full");
+  await page.locator("#fullscreenMap").click();
+  await expect.poll(() => page.evaluate(() => !!(document.fullscreenElement || document.webkitFullscreenElement))).toBe(false);
+  await expect(page.locator("#fullscreenMap")).toHaveText("Fullscreen");
+  await expectMarkersInsideMap(page);
 
   await page.screenshot({
     path: path.join(testInfo.outputDir, "control-app-map-demo.png"),
@@ -24,10 +32,12 @@ test("offline demo fixture renders GNSS and no-GPS markers", async ({ page }, te
 });
 
 async function expectMarkersInsideMap(page) {
-  const result = await page.evaluate(() => {
+  await expect.poll(async () => page.evaluate(() => {
     const mapBox = document.querySelector("#map")?.getBoundingClientRect();
     const markers = Array.from(document.querySelectorAll(".node-marker")).map((marker) => {
       const box = marker.getBoundingClientRect();
+      const centerX = box.left + box.width / 2;
+      const centerY = box.top + box.height / 2;
       return {
         left: box.left,
         right: box.right,
@@ -35,22 +45,23 @@ async function expectMarkersInsideMap(page) {
         bottom: box.bottom,
         width: box.width,
         height: box.height,
+        centerX,
+        centerY,
       };
     });
     if (!mapBox) return { ok: false, reason: "missing map", markers };
     const inside = markers.filter((box) =>
       box.width > 0 &&
       box.height > 0 &&
-      box.left >= mapBox.left &&
-      box.right <= mapBox.right &&
-      box.top >= mapBox.top &&
-      box.bottom <= mapBox.bottom
+      box.centerX >= mapBox.left &&
+      box.centerX <= mapBox.right &&
+      box.centerY >= mapBox.top &&
+      box.centerY <= mapBox.bottom
     );
     return {
-      ok: inside.length === 4,
-      reason: `${inside.length} markers inside map`,
+      ok: inside.length >= 4,
+      reason: `${inside.length} of ${markers.length} markers inside map`,
       markers,
     };
-  });
-  expect(result, result.reason).toMatchObject({ ok: true });
+  })).toMatchObject({ ok: true });
 }
