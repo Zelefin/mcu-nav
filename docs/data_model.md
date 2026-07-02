@@ -53,6 +53,60 @@ Beacon packet sequencing and ranging request correlation are separate:
 
 RSSI/SNR are receive diagnostics, not peer-reported telemetry.
 
+Peer telemetry position fields are also the map display position for that peer.
+The peer's position source distinguishes local GNSS positions from accepted
+`RADIO_3D` estimates. Only GNSS-valid peer positions may become navigation
+anchors; estimated peer positions are displayable but not anchor inputs.
+For map rendering, peer telemetry carries source/status metadata, and control
+JSON exposes UI-facing `position_source` and `position_valid` fields alongside
+the reported position, GNSS validity, and freshness/timestamp. The control app
+maps `position_source = GNSS` to the GNSS marker style and
+`position_source = RADIO_3D` to the no-GPS estimated marker style. `gnss_valid`
+remains an anchor-eligibility signal, not the only display-position signal.
+Valid control JSON `position_source` values are `GNSS`, `RADIO_3D`, and `NONE`.
+`position_valid` means the control app may render the node as a live map marker;
+it is separate from `gnss_valid`. Accepted degraded radio solutions keep
+`position_valid = true` and expose `position_degraded` separately for styling.
+
+The control app labels GNSS positions with the existing default node-name style,
+such as `node-3`, and estimated radio positions as `node-1 (no GPS)`. The
+connected node adds `this`, for example `node-3 (this)` or
+`node-1 (this, no GPS)`.
+GNSS markers use a blue/green success color, estimated radio markers use
+amber/orange, and stale or failed states use faded or red styling. An accepted
+`RADIO_3D` position is not an error state.
+The map shows one marker per node from the node's current accepted solution
+source. Estimated positions are shown only when that node has no usable local
+GPS solution and has enough valid anchors/ranges to accept a radio solution.
+Accepted degraded radio solutions remain displayable with degraded styling;
+rejected or no-solution positions are not live map markers.
+The four-node field visualization scenario assumes the modules are at the same
+height and keeps the existing control-app/manual altitude default of `0 mm`.
+The v1 radio solver remains unchanged and still receives a local altitude input;
+the field workflow simply does not treat height as a visualization concern.
+Map labels and overlays hide altitude for this scenario. Tables, debug details,
+serial JSON, logs, and replay outputs continue to carry altitude.
+The first control-app map view shows node markers only; range links, anchor
+triangles, and geometry overlays remain out of scope for this branch.
+The map initially fits or follows the visible node markers. User pan or zoom
+pauses automatic camera movement until the operator presses a recenter control.
+In the control app layout, the map is the primary live field surface above the
+existing distance and peer tables. The local-node controls remain available next
+to it on wide screens and above it on narrow screens.
+The map's `this`/`me` marker is the connected navigation node from the serial
+snapshot, not the browser or laptop geolocation.
+Recently stale node positions remain visible briefly as faded markers with age
+available in details, then leave the live map while remaining diagnosable in
+tables/logs.
+The control app keeps one USB-serial connection; other nodes appear through the
+connected node's radio-derived network view, not through multiple serial ports.
+Control-app map behavior should be testable from a deterministic four-node demo
+snapshot or fixture: three GNSS nodes around one accepted `RADIO_3D` node.
+This visualization branch prepares the control-app and serial/control contract
+for real GNSS data but does not implement the ESP32 GNSS UART adapter.
+Peer map labels use node IDs and the control app's local name cache/defaults;
+over-the-air node-name synchronization is out of scope.
+
 ## Pair Range Observations
 
 `nav_peer_state_t` is the current local-to-peer anchor state. It is intentionally

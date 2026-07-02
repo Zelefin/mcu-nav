@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>nav-mcu control</title>
+<link rel="stylesheet" href="vendor/maplibre-gl/maplibre-gl.css" />
 <style>
   :root { color-scheme: dark; --bg:#0f1216; --panel:#171c23; --line:#262d36; --fg:#e6edf3; --muted:#8b97a6; --accent:#4da3ff; --ok:#3fb950; --warn:#d29922; --bad:#f85149; }
   * { box-sizing: border-box; }
@@ -23,6 +24,27 @@
   @media (max-width: 920px){ main { grid-template-columns:1fr; } }
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; min-width:0; overflow:hidden; }
   .panel h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 12px; }
+  .map-block { margin:-16px -16px 16px; border-bottom:1px solid var(--line); }
+  .map-head { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .map-head h2 { margin:0; }
+  .map-head .pill { border-radius:6px; }
+  #map { height:440px; min-height:320px; position:relative; overflow:hidden; background:#111820; }
+  .plot-layer { position:absolute; inset:0; background:
+    linear-gradient(rgba(77,163,255,.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(77,163,255,.08) 1px, transparent 1px),
+    radial-gradient(circle at 50% 50%, rgba(63,185,80,.12), transparent 45%),
+    #10151b; background-size:64px 64px,64px 64px,100% 100%,100% 100%; }
+  .map-empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:13px; pointer-events:none; }
+  .node-marker { display:flex; align-items:center; gap:6px; color:var(--fg); filter:drop-shadow(0 2px 5px rgba(0,0,0,.55)); transform:translate(-50%,-50%); }
+  .maplibregl-marker .node-marker { transform:none; }
+  .node-dot { width:16px; height:16px; border-radius:50%; border:2px solid #e6edf3; background:var(--accent); box-shadow:0 0 0 3px rgba(77,163,255,.22); flex:0 0 16px; }
+  .node-label { max-width:220px; padding:2px 7px; border-radius:5px; background:rgba(15,18,22,.88); border:1px solid rgba(230,237,243,.16); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font:12px/1.35 ui-monospace,Menlo,Consolas,monospace; }
+  .node-marker.gnss .node-dot { background:#3fb950; box-shadow:0 0 0 3px rgba(63,185,80,.24); }
+  .node-marker.radio .node-dot { background:#d29922; box-shadow:0 0 0 3px rgba(210,153,34,.28); }
+  .node-marker.degraded { opacity:.76; }
+  .node-marker.stale { opacity:.43; }
+  .node-marker.this .node-dot { border-color:#fff; box-shadow:0 0 0 4px rgba(255,255,255,.18),0 0 0 8px rgba(77,163,255,.13); }
+  .maplibregl-popup-content { background:#171c23; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:8px 10px; font:12px/1.35 system-ui,sans-serif; }
   .kv { display:flex; justify-content:space-between; gap:8px; padding:4px 0; border-bottom:1px dashed var(--line); }
   .kv:last-child { border-bottom:0; }
   .kv span:first-child { color:var(--muted); }
@@ -81,6 +103,7 @@
     .data-table td::before { content:attr(data-label); color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
     .data-table .num { text-align:left; white-space:normal; }
     .state-cell { justify-content:flex-start; }
+    #map { height:360px; }
   }
 </style>
 </head>
@@ -131,6 +154,20 @@
   </section>
 
   <section class="panel">
+    <div class="map-block">
+      <div class="map-head">
+        <h2>Map</h2>
+        <span id="mapStatus" class="pill">plot</span>
+        <span class="grow"></span>
+        <button id="demoMap">Demo</button>
+        <button id="recenterMap">Recenter</button>
+      </div>
+      <div id="map">
+        <div id="plotLayer" class="plot-layer"></div>
+        <div id="mapEmpty" class="map-empty">No live positions.</div>
+      </div>
+    </div>
+
     <h2>Distance observations</h2>
     <table class="data-table distance-table">
       <colgroup><col><col><col><col><col><col><col></colgroup>
@@ -149,6 +186,8 @@
   </section>
 </main>
 
+<script src="vendor/maplibre-gl/maplibre-gl.js"></script>
+<script src="vendor/pmtiles/pmtiles.js"></script>
 <script>
 "use strict";
 const BAUD = 115200;
@@ -157,9 +196,21 @@ let currentNodeId = null;
 let lastGps = false, lastMock = false;
 let nodeNameRenderSig = "";
 let lastSnapshot = null;
+let map = null;
+let pmtilesProtocol = null;
+let mapMode = "plot";
+let mapAutoFollow = true;
+let mapInitAttempted = false;
+const mapLibreMarkers = new Map();
+const plotMarkers = new Map();
+const lastMapPositions = new Map();
 
 const DASH = "—";
 const NODE_NAMES_KEY = "nav-mcu.nodeNames.v1";
+const KYIV_PM_TILES = "kyiv-oblast.pmtiles";
+const KYIV_CENTER = [30.5234, 50.4501];
+const STALE_POSITION_MS = 5000;
+const STALE_DISPLAY_MS = 30000;
 const discoveredNodes = new Set();
 const observations = new Map();
 const nodeNames = loadNodeNames();
@@ -179,6 +230,12 @@ function escapeHtml(value) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function setMapStatus(text, kind = "") {
+  const el = $("mapStatus");
+  el.textContent = text;
+  el.className = ["pill", kind].filter(Boolean).join(" ");
 }
 
 function loadNodeNames() {
@@ -280,6 +337,120 @@ function hasSolvedPosition(snapshot) {
   if (!snapshot.src || snapshot.src === "NONE") return false;
   if (!snapshot.sol || snapshot.sol === "NONE" || snapshot.sol === "REJECTED") return false;
   return true;
+}
+
+function normalizedPositionSource(raw) {
+  if (raw === "GNSS" || raw === "LOCAL_GNSS" || raw === "GPS") return "GNSS";
+  if (raw === "RADIO_3D") return "RADIO_3D";
+  return "NONE";
+}
+
+function fallbackPositionSourceForSnapshot(snapshot) {
+  if (!hasSolvedPosition(snapshot)) return "NONE";
+  return normalizedPositionSource(snapshot.position_source || snapshot.src);
+}
+
+function fallbackPositionValid(source, valid, degraded) {
+  if (typeof valid === "boolean") return valid;
+  if (source === "GNSS") return true;
+  if (source === "RADIO_3D") return true;
+  return !!degraded;
+}
+
+function mapLabelFor(id, source, isThis) {
+  const parts = [];
+  if (isThis) parts.push("this");
+  if (source === "RADIO_3D") parts.push("no GPS");
+  const suffix = parts.length ? ` (${parts.join(", ")})` : "";
+  return `${labelFor(id)}${suffix}`;
+}
+
+function positionClass(pos) {
+  return [
+    "node-marker",
+    pos.source === "RADIO_3D" ? "radio" : "gnss",
+    pos.isThis ? "this" : "",
+    pos.degraded ? "degraded" : "",
+    pos.stale ? "stale" : "",
+  ].filter(Boolean).join(" ");
+}
+
+function markerElement(pos) {
+  const el = document.createElement("div");
+  el.className = positionClass(pos);
+  el.dataset.nodeId = String(pos.id);
+  el.dataset.positionSource = pos.source;
+  const ageText = pos.stale && hasNumber(pos.ageMs) ? `, ${fmtAge(pos.ageMs)} stale` : "";
+  const degradedText = pos.degraded ? ", degraded" : "";
+  el.title = `${pos.label}${degradedText}${ageText}`;
+  el.innerHTML = `<span class="node-dot"></span><span class="node-label">${escapeHtml(pos.label)}</span>`;
+  return el;
+}
+
+function coordinatesValid(latE7, lonE7) {
+  const lat = Number(latE7) / 1e7;
+  const lon = Number(lonE7) / 1e7;
+  return Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+}
+
+function snapshotMapPositions(snapshot = lastSnapshot) {
+  const now = Date.now();
+  const positions = [];
+  if (snapshot?.node && isNodeId(Number(snapshot.node.id)) && snapshot.pos) {
+    const id = Number(snapshot.node.id);
+    const source = fallbackPositionSourceForSnapshot(snapshot);
+    const valid = fallbackPositionValid(source, snapshot.position_valid, snapshot.position_degraded);
+    if (valid && coordinatesValid(snapshot.pos.lat_e7, snapshot.pos.lon_e7)) {
+      positions.push({
+        id,
+        source,
+        lat: Number(snapshot.pos.lat_e7) / 1e7,
+        lon: Number(snapshot.pos.lon_e7) / 1e7,
+        label: mapLabelFor(id, source, true),
+        degraded: !!snapshot.position_degraded,
+        stale: false,
+        ageMs: 0,
+        isThis: true,
+        updatedAt: now,
+      });
+    }
+  }
+
+  for (const peer of snapshot?.peers || []) {
+    if (!isNodeId(peer.id)) continue;
+    const source = normalizedPositionSource(peer.position_source || (peer.gnss ? "GNSS" : "NONE"));
+    const valid = fallbackPositionValid(source, peer.position_valid, peer.position_degraded);
+    const telemetryAgeMs = hasNumber(peer.telemetry_age_ms) ? Number(peer.telemetry_age_ms) : 0;
+    if (!valid) {
+      const previous = lastMapPositions.get(peer.id);
+      if (!previous || telemetryAgeMs > STALE_DISPLAY_MS) continue;
+      positions.push({
+        ...previous,
+        label: mapLabelFor(peer.id, previous.source, peer.id === currentNodeId),
+        stale: true,
+        ageMs: telemetryAgeMs,
+        isThis: peer.id === currentNodeId,
+        updatedAt: now - telemetryAgeMs,
+      });
+      continue;
+    }
+    if (!coordinatesValid(peer.lat_e7, peer.lon_e7)) continue;
+    positions.push({
+      id: peer.id,
+      source,
+      lat: Number(peer.lat_e7) / 1e7,
+      lon: Number(peer.lon_e7) / 1e7,
+      label: mapLabelFor(peer.id, source, peer.id === currentNodeId),
+      degraded: !!peer.position_degraded,
+      stale: telemetryAgeMs > STALE_POSITION_MS,
+      ageMs: telemetryAgeMs,
+      isThis: peer.id === currentNodeId,
+      updatedAt: now - telemetryAgeMs,
+    });
+  }
+
+  for (const pos of positions) lastMapPositions.set(pos.id, pos);
+  return positions;
 }
 
 function gnssAvailable(peer) {
@@ -484,6 +655,168 @@ function recordObservation(obs) {
   renderPeerSnapshot();
 }
 
+async function initMap() {
+  if (mapInitAttempted) return;
+  mapInitAttempted = true;
+  setMapStatus("plot", "");
+
+  if (location.protocol === "file:" || !window.maplibregl || !window.pmtiles) {
+    mapMode = "plot";
+    renderMap();
+    return;
+  }
+
+  try {
+    const pmtilesUrl = new URL(KYIV_PM_TILES, location.href).href;
+    const probe = await fetch(pmtilesUrl, { method: "HEAD", cache: "no-store" });
+    if (!probe.ok) throw new Error("offline map sidecar not found");
+
+    pmtilesProtocol = new pmtiles.Protocol();
+    maplibregl.addProtocol("pmtiles", pmtilesProtocol.tile);
+    map = new maplibregl.Map({
+      container: "map",
+      center: KYIV_CENTER,
+      zoom: 11,
+      attributionControl: false,
+      style: {
+        version: 8,
+        sources: {
+          kyiv: {
+            type: "vector",
+            url: `pmtiles://${pmtilesUrl}`,
+          },
+        },
+        layers: [
+          { id: "background", type: "background", paint: { "background-color": "#10151b" } },
+          { id: "water", type: "fill", source: "kyiv", "source-layer": "water", paint: { "fill-color": "#16334a" } },
+          { id: "landuse", type: "fill", source: "kyiv", "source-layer": "landuse", paint: { "fill-color": "#172219", "fill-opacity": 0.45 } },
+          { id: "roads", type: "line", source: "kyiv", "source-layer": "transportation", paint: { "line-color": "#3a4451", "line-width": 1.2 } },
+          { id: "buildings", type: "fill", source: "kyiv", "source-layer": "building", paint: { "fill-color": "#252d37", "fill-opacity": 0.7 } },
+        ],
+      },
+    });
+    map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), "top-right");
+    mapMode = "map";
+    $("plotLayer").style.display = "none";
+    setMapStatus("offline map", "on");
+    renderMap();
+    map.on("dragstart", () => { mapAutoFollow = false; });
+    map.on("zoomstart", () => { mapAutoFollow = false; });
+    map.on("load", () => {
+      map.resize();
+      renderMap();
+    });
+    map.on("error", () => {
+      if (mapMode !== "map") {
+        mapMode = "plot";
+        setMapStatus("plot", "");
+        renderMap();
+      }
+    });
+  } catch (_) {
+    mapMode = "plot";
+    setMapStatus("plot", "");
+    renderMap();
+  }
+}
+
+function fitMapPositions(positions) {
+  if (!positions.length || !mapAutoFollow) return;
+  if (mapMode === "map" && map) {
+    const bounds = new maplibregl.LngLatBounds();
+    for (const pos of positions) bounds.extend([pos.lon, pos.lat]);
+    if (positions.length === 1) {
+      map.easeTo({ center: [positions[0].lon, positions[0].lat], zoom: 16, duration: 400 });
+    } else {
+      map.fitBounds(bounds, { padding: 80, maxZoom: 17, duration: 400 });
+    }
+  }
+}
+
+function plotProject(pos, bounds) {
+  const lonSpan = Math.max(bounds.maxLon - bounds.minLon, 0.0005);
+  const latSpan = Math.max(bounds.maxLat - bounds.minLat, 0.0005);
+  const x = 8 + ((pos.lon - bounds.minLon) / lonSpan) * 84;
+  const y = 92 - ((pos.lat - bounds.minLat) / latSpan) * 84;
+  return { x, y };
+}
+
+function renderPlotMarkers(positions) {
+  const layer = $("plotLayer");
+  layer.style.display = "block";
+  const active = new Set();
+  const bounds = positions.reduce((acc, pos) => ({
+    minLat: Math.min(acc.minLat, pos.lat),
+    maxLat: Math.max(acc.maxLat, pos.lat),
+    minLon: Math.min(acc.minLon, pos.lon),
+    maxLon: Math.max(acc.maxLon, pos.lon),
+  }), { minLat: 90, maxLat: -90, minLon: 180, maxLon: -180 });
+
+  for (const pos of positions) {
+    active.add(pos.id);
+    let el = plotMarkers.get(pos.id);
+    if (!el) {
+      el = markerElement(pos);
+      el.style.position = "absolute";
+      layer.appendChild(el);
+      plotMarkers.set(pos.id, el);
+    }
+    el.className = positionClass(pos);
+    el.title = markerElement(pos).title;
+    el.querySelector(".node-label").textContent = pos.label;
+    const xy = plotProject(pos, bounds);
+    el.style.left = `${xy.x}%`;
+    el.style.top = `${xy.y}%`;
+  }
+
+  for (const [id, el] of plotMarkers) {
+    if (!active.has(id)) {
+      el.remove();
+      plotMarkers.delete(id);
+    }
+  }
+}
+
+function renderMapLibreMarkers(positions) {
+  if (!map) return;
+  const active = new Set();
+  for (const pos of positions) {
+    active.add(pos.id);
+    let marker = mapLibreMarkers.get(pos.id);
+    if (!marker) {
+      marker = new maplibregl.Marker({ element: markerElement(pos), anchor: "bottom" })
+        .setLngLat([pos.lon, pos.lat])
+        .addTo(map);
+      mapLibreMarkers.set(pos.id, marker);
+    } else {
+      marker.setLngLat([pos.lon, pos.lat]);
+      const el = marker.getElement();
+      el.className = positionClass(pos);
+      el.title = markerElement(pos).title;
+      el.querySelector(".node-label").textContent = pos.label;
+    }
+  }
+  for (const [id, marker] of mapLibreMarkers) {
+    if (!active.has(id)) {
+      marker.remove();
+      mapLibreMarkers.delete(id);
+    }
+  }
+}
+
+function renderMap() {
+  const positions = snapshotMapPositions();
+  $("mapEmpty").style.display = positions.length ? "none" : "flex";
+  if (mapMode === "map" && map) {
+    for (const [, el] of plotMarkers) el.remove();
+    plotMarkers.clear();
+    renderMapLibreMarkers(positions);
+  } else {
+    renderPlotMarkers(positions);
+  }
+  fitMapPositions(positions);
+}
+
 function renderDistanceObservations() {
   const tb = $("distances");
   const rowsByKey = new Map(observations);
@@ -674,6 +1007,78 @@ function render(s) {
   renderNodeNames();
   renderDistanceObservations();
   renderPeerSnapshot();
+  renderMap();
+}
+
+function demoSnapshot() {
+  return {
+    t: 1000,
+    node: { id: 1, name: "node-1", gps: false, mock: false },
+    mode: "RADIO_NAV_OK",
+    sol: "RADIO_3D",
+    src: "RADIO_3D",
+    reject: "NONE",
+    pos: { lat_e7: 504522000, lon_e7: 305260000, alt_mm: 0 },
+    num_anchors: 3,
+    position_source: "RADIO_3D",
+    position_valid: true,
+    position_degraded: false,
+    peers: [
+      {
+        id: 0,
+        gnss: true,
+        lat_e7: 504501000,
+        lon_e7: 305232000,
+        alt_mm: 0,
+        position_source: "GNSS",
+        position_valid: true,
+        position_degraded: false,
+        telemetry_age_ms: 0,
+        range_mm: 4100,
+        range_valid: true,
+        rssi: -58,
+        snr: 10,
+        quality: 0.96,
+      },
+      {
+        id: 2,
+        gnss: true,
+        lat_e7: 504565000,
+        lon_e7: 305203000,
+        alt_mm: 0,
+        position_source: "GNSS",
+        position_valid: true,
+        position_degraded: false,
+        telemetry_age_ms: 0,
+        range_mm: 5200,
+        range_valid: true,
+        rssi: -61,
+        snr: 9,
+        quality: 0.93,
+      },
+      {
+        id: 3,
+        gnss: true,
+        lat_e7: 504510000,
+        lon_e7: 305340000,
+        alt_mm: 0,
+        position_source: "GNSS",
+        position_valid: true,
+        position_degraded: false,
+        telemetry_age_ms: 0,
+        range_mm: 4300,
+        range_valid: true,
+        rssi: -63,
+        snr: 8,
+        quality: 0.91,
+      },
+    ],
+  };
+}
+
+function loadDemo() {
+  render(demoSnapshot());
+  logLine("[demo fixture loaded]");
 }
 
 $("connect").onclick = connect;
@@ -691,6 +1096,11 @@ $("setNodeId").onclick = () => {
 $("gpsToggle").onclick = () => sendCommand({ cmd: "gps", enabled: !lastGps });
 $("mockToggle").onclick = () => sendCommand({ cmd: "mock", enabled: !lastMock });
 $("setAlt").onclick = () => { const v = parseInt($("altInput").value, 10); if (!Number.isNaN(v)) sendCommand({ cmd: "alt", alt_mm: v }); };
+$("demoMap").onclick = loadDemo;
+$("recenterMap").onclick = () => {
+  mapAutoFollow = true;
+  renderMap();
+};
 $("nodeNames").addEventListener("input", (event) => {
   const id = parseInt(event.target.dataset.nodeNameId, 10);
   if (Number.isNaN(id)) return;
@@ -718,9 +1128,12 @@ $("nodeNames").addEventListener("click", (event) => {
 renderNodeNames(true);
 renderDistanceObservations();
 renderPeerSnapshot();
+initMap();
+if (new URLSearchParams(location.search).get("demo") === "1") loadDemo();
 setInterval(() => {
   renderDistanceObservations();
   renderPeerSnapshot();
+  renderMap();
 }, 1000);
 window.addEventListener("beforeunload", () => { if (port) disconnect(); });
 </script>

@@ -87,6 +87,8 @@ size_t nav_mock_emit(const nav_mock_t *mock, uint32_t now_ms, nav_mock_emit_fn e
                     .hacc_mm = peer->gnss_valid ? 1000u : 0u,
                     .vacc_mm = peer->gnss_valid ? 1500u : 0u,
                     .nav_mode = peer->gnss_valid ? NAV_MODE_GNSS_OK : NAV_MODE_NO_NAV_SOLUTION,
+                    .solution_status = peer->gnss_valid ? NAV_SOLUTION_GNSS_DIRECT : NAV_SOLUTION_NONE,
+                    .solution_source = peer->gnss_valid ? NAV_SOURCE_LOCAL_GNSS : NAV_SOURCE_NONE,
                 },
                 .rssi_dbm = peer->rssi_dbm,
                 .snr_db = peer->snr_db,

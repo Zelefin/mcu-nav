@@ -14,6 +14,8 @@ static void test_beacon_roundtrip(void)
         .gnss_valid = true,
         .satellites = 11u,
         .nav_mode = NAV_MODE_GNSS_OK,
+        .solution_status = NAV_SOLUTION_GNSS_DIRECT,
+        .solution_source = NAV_SOURCE_LOCAL_GNSS,
     };
 
     uint8_t bytes[NAV_RADIO_MAX_FRAME_BYTES];
@@ -35,6 +37,8 @@ static void test_beacon_roundtrip(void)
     assert(b->telemetry.gnss_valid);
     assert(b->telemetry.fix_type == NAV_GNSS_FIX_3D);
     assert(b->telemetry.nav_mode == NAV_MODE_GNSS_OK);
+    assert(b->telemetry.solution_status == NAV_SOLUTION_GNSS_DIRECT);
+    assert(b->telemetry.solution_source == NAV_SOURCE_LOCAL_GNSS);
     assert(b->rssi_dbm == -64); /* measured locally on receive */
     assert(b->snr_db == 9);
 }

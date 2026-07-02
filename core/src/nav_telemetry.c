@@ -71,7 +71,7 @@ static size_t get_i32(const uint8_t *b, size_t o, int32_t *v)
     return o;
 }
 
-#define NAV_TELEMETRY_BEACON_LEN 41u
+#define NAV_TELEMETRY_BEACON_LEN 43u
 #define NAV_TELEMETRY_RANGE_RESULT_LEN 21u
 #define NAV_TELEMETRY_RANGE_FAIL_LEN 13u
 
@@ -102,6 +102,8 @@ nav_status_t nav_telemetry_encode_beacon(
     o = put_u8(payload, o, (uint8_t)telemetry->fix_type);
     o = put_u8(payload, o, telemetry->gnss_valid ? 1u : 0u);
     o = put_u8(payload, o, (uint8_t)telemetry->nav_mode);
+    o = put_u8(payload, o, (uint8_t)telemetry->solution_status);
+    o = put_u8(payload, o, (uint8_t)telemetry->solution_source);
     o = put_i16(payload, o, 0); /* rssi: measured by receiver, not the sender */
     o = put_i16(payload, o, 0); /* snr: measured by receiver, not the sender */
     o = put_u8(payload, o, 0u); /* reserved */
@@ -165,6 +167,8 @@ static nav_status_t decode_beacon(
     uint8_t fix = 0u;
     uint8_t valid = 0u;
     uint8_t mode = 0u;
+    uint8_t solution_status = 0u;
+    uint8_t solution_source = 0u;
     int16_t ignored = 0;
     uint8_t reserved = 0u;
     size_t o = 0u;
@@ -180,6 +184,8 @@ static nav_status_t decode_beacon(
     o = get_u8(p, o, &fix);
     o = get_u8(p, o, &valid);
     o = get_u8(p, o, &mode);
+    o = get_u8(p, o, &solution_status);
+    o = get_u8(p, o, &solution_source);
     o = get_i16(p, o, &ignored);
     o = get_i16(p, o, &ignored);
     (void)get_u8(p, o, &reserved);
@@ -187,6 +193,8 @@ static nav_status_t decode_beacon(
     t.fix_type = (nav_gnss_fix_type_t)fix;
     t.gnss_valid = valid != 0u;
     t.nav_mode = (nav_mode_t)mode;
+    t.solution_status = (nav_solution_status_t)solution_status;
+    t.solution_source = (nav_solution_source_t)solution_source;
 
     out_event->type = NAV_EVT_PEER_TELEMETRY_RX;
     out_event->timestamp_ms = now_ms;

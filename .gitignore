@@ -11,6 +11,11 @@ build/
 .pytest_cache/
 __pycache__/
 dependencies.lock
+node_modules/
+control-app/kyiv-oblast.pmtiles
+control-app/*.pmtiles
+control-app/test-results/
+playwright-report/
 sdkconfig.*
 !sdkconfig.defaults*
 .DS_Store

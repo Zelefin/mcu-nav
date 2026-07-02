@@ -17,6 +17,8 @@ static nav_peer_telemetry_t telemetry(uint8_t node_id)
         .hacc_mm = 1200u,
         .vacc_mm = 1800u,
         .nav_mode = NAV_MODE_GNSS_OK,
+        .solution_status = NAV_SOLUTION_GNSS_DIRECT,
+        .solution_source = NAV_SOURCE_LOCAL_GNSS,
     };
     return t;
 }
@@ -35,6 +37,8 @@ int main(void)
     assert(peer->packet_seq == 42u);
     assert(peer->position.alt_mm == 180000);
     assert(peer->gnss_valid);
+    assert(peer->solution_status == NAV_SOLUTION_GNSS_DIRECT);
+    assert(peer->solution_source == NAV_SOURCE_LOCAL_GNSS);
 
     nav_range_result_t range = {
         .peer_id = 1u,

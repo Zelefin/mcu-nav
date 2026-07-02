@@ -68,6 +68,8 @@ bool nav_peer_table_update_telemetry(nav_peer_table_t *table, const nav_peer_tel
     peer->hacc_mm = telemetry->hacc_mm;
     peer->vacc_mm = telemetry->vacc_mm;
     peer->peer_nav_mode = telemetry->nav_mode;
+    peer->solution_status = telemetry->solution_status;
+    peer->solution_source = telemetry->solution_source;
     peer->last_reject_reason = NAV_REJECT_NONE;
     return true;
 }

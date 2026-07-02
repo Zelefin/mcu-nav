@@ -24,7 +24,7 @@ namespace {
 
 constexpr uint32_t kSnapshotPeriodMs = 500u;
 constexpr size_t kLineMax = 256u;
-constexpr size_t kSnapshotBufMax = 1024u;
+constexpr size_t kSnapshotBufMax = 2048u;
 
 NodeConfig gConfig;
 nav_system_t gNav;

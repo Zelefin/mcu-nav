@@ -440,15 +440,25 @@ examples/        Replay/GNSS fixtures and committed deterministic scenarios.
 
 ### Control App
 
-Open `control-app/index.html` in desktop Chrome or Edge, click Connect, and pick
-the node's USB-serial port. The app shows the connected node's mode/solution,
-peer snapshot, and distance observations discovered from that serial stream. The
-distance table is built from discovered node IDs plus received `range_result`
-telemetry, including best-effort `source=air_report` reports for pairs measured
-by other nodes. Valid ranges are shown in green. Failed ranging attempts that
-still include an SX1280 `uncorrected_m` diagnostic, such as short-range
-`invalid distance`, show that diagnostic distance in red. Missing or GPS-derived
-fields are shown as `—` until that data exists.
+For the field-kit path, start the app through the OS launcher in `control-app/`
+(`start-linux.sh`, `start-windows.bat`, or `start-macos.command`). The launcher
+requires Python 3, starts a range-capable `localhost` server, and opens
+`index.html`. Place the optional offline Kyiv map sidecar at
+`control-app/kyiv-oblast.pmtiles`; it is not committed to git. Directly opening
+`control-app/index.html` can still show the non-map UI or coordinate-plot
+fallback.
+
+In desktop Chrome or Edge, click Connect and pick the node's USB-serial port.
+The app shows the connected node's mode/solution, live map position, peer
+snapshot, and distance observations discovered from that serial stream. The map
+uses blue/green markers for GNSS positions and amber/orange markers for accepted
+`RADIO_3D` no-GPS estimates. The distance table is built from discovered node
+IDs plus received `range_result` telemetry, including best-effort
+`source=air_report` reports for pairs measured by other nodes. Valid ranges are
+shown in green. Failed ranging attempts that still include an SX1280
+`uncorrected_m` diagnostic, such as short-range `invalid distance`, show that
+diagnostic distance in red. Missing or GPS-derived fields are shown as `—` until
+that data exists.
 The node-name controls cache labels in the browser and can persist the connected
 node's name to device storage (NVS on ESP32, EEPROM on SpeedyBee).
 The app also lets you set node ID, toggle the navigation core's GPS preference
@@ -480,6 +490,7 @@ cmake -S . -B build && cmake --build build
 - [State machine](docs/state_machine.md)
 - [Logging](docs/logging.md)
 - [GNSS NMEA](docs/gnss_nmea.md)
+- [Control app map field test](docs/control_app_map_field_test.md)
 - [Debug playbook](docs/debug_playbook.md)
 - [Radio protocol](docs/radio_protocol.md)
 - [Replay CSV](docs/replay_csv.md)

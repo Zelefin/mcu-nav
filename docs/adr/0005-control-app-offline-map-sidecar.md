@@ -1,0 +1,9 @@
+# ADR 0005: Control App Offline Map Sidecar
+
+## Decision
+
+The control app remains entered through `control-app/index.html`, but the shareable field kit may include sidecar assets. For offline maps, `index.html` first looks for a fixed same-directory PMTiles file named `kyiv-oblast.pmtiles`; the final usable field-kit path is `control-app/kyiv-oblast.pmtiles`. If it is unavailable, the app may fall back to user-selected map data, online map tiles, or a plain coordinate plot. The supported offline-map workflow starts a range-capable local `localhost` server through OS-specific launchers (`start-linux.sh`, `start-windows.bat`, and `start-macos.command`) that require Python 3; directly opening `index.html` is allowed to degrade to the non-map UI or coordinate plot. The offline bundle covers Kyiv city and Kyiv oblast with a small margin, uses a vector street/topographic basemap rather than satellite imagery, and renders through MapLibre GL with the PMTiles protocol. Small pinned browser JS/CSS assets needed by `index.html` are committed to the repository. Large PMTiles bundles are generated or downloaded into a git-ignored field-kit path and shared separately with testers, not committed to the repository.
+
+## Rationale
+
+The outdoor test workflow needs to be double-click friendly on Linux, Windows, and macOS while still working without internet access. A fixed sidecar filename gives testers a simple folder layout to share, avoids browser directory-scanning assumptions, and keeps large bounded map data out of the HTML entry point. The local server path avoids fragile browser `file://` behavior for PMTiles and module loading, while Python 3 keeps the launcher dependency explicit and portable. Vector street/topographic data is more practical for this field workflow than large offline aerial imagery, and local vendored assets keep the real-life test independent of CDN availability.

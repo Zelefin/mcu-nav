@@ -48,6 +48,56 @@ static int json_append_escaped(char *buf, size_t cap, int used, const char *s)
     return json_appendf(buf, cap, used, "\"");
 }
 
+static bool solution_is_displayable(nav_solution_source_t source, nav_solution_status_t status)
+{
+    if (source == NAV_SOURCE_LOCAL_GNSS) {
+        return status == NAV_SOLUTION_GNSS_DIRECT;
+    }
+    if (source == NAV_SOURCE_RADIO_3D) {
+        return status == NAV_SOLUTION_RADIO_3D || status == NAV_SOLUTION_DEGRADED;
+    }
+    return false;
+}
+
+static bool solution_is_degraded(nav_solution_source_t source, nav_solution_status_t status)
+{
+    return source == NAV_SOURCE_RADIO_3D && status == NAV_SOLUTION_DEGRADED;
+}
+
+static const char *position_source_to_json(nav_solution_source_t source)
+{
+    switch (source) {
+    case NAV_SOURCE_LOCAL_GNSS:
+        return "GNSS";
+    case NAV_SOURCE_RADIO_3D:
+        return "RADIO_3D";
+    default:
+        return "NONE";
+    }
+}
+
+static nav_solution_source_t peer_effective_source(const nav_peer_state_t *peer)
+{
+    if (peer == NULL) {
+        return NAV_SOURCE_NONE;
+    }
+    if (peer->solution_source != NAV_SOURCE_NONE) {
+        return peer->solution_source;
+    }
+    return peer->gnss_valid ? NAV_SOURCE_LOCAL_GNSS : NAV_SOURCE_NONE;
+}
+
+static nav_solution_status_t peer_effective_status(const nav_peer_state_t *peer, nav_solution_source_t source)
+{
+    if (peer == NULL) {
+        return NAV_SOLUTION_NONE;
+    }
+    if (peer->solution_status != NAV_SOLUTION_NONE) {
+        return peer->solution_status;
+    }
+    return source == NAV_SOURCE_LOCAL_GNSS ? NAV_SOLUTION_GNSS_DIRECT : NAV_SOLUTION_NONE;
+}
+
 int nav_serial_write_snapshot(
     char *buf,
     size_t cap,
@@ -81,6 +131,12 @@ int nav_serial_write_snapshot(
                         (long)snapshot->position.lon_e7,
                         (long)snapshot->position.alt_mm,
                         (unsigned)snapshot->num_anchors);
+    used = json_appendf(buf, cap, used,
+                        ",\"position_source\":\"%s\",\"position_valid\":%s,\"position_degraded\":%s",
+                        position_source_to_json(snapshot->solution_source),
+                        solution_is_displayable(snapshot->solution_source, snapshot->solution_status) ? "true"
+                                                                                                      : "false",
+                        solution_is_degraded(snapshot->solution_source, snapshot->solution_status) ? "true" : "false");
 
     used = json_appendf(buf, cap, used, ",\"peers\":[");
     bool first = true;
@@ -91,14 +147,25 @@ int nav_serial_write_snapshot(
         }
         used = json_appendf(buf, cap, used, "%s", first ? "" : ",");
         first = false;
+        const nav_solution_source_t source = peer_effective_source(peer);
+        const nav_solution_status_t status = peer_effective_status(peer, source);
+        const uint32_t telemetry_age_ms = snapshot->time_ms >= peer->last_telemetry_timestamp_ms
+                                              ? snapshot->time_ms - peer->last_telemetry_timestamp_ms
+                                              : 0u;
         used = json_appendf(buf, cap, used,
                             "{\"id\":%u,\"gnss\":%s,\"lat_e7\":%ld,\"lon_e7\":%ld,\"alt_mm\":%ld,"
+                            "\"position_source\":\"%s\",\"position_valid\":%s,\"position_degraded\":%s,"
+                            "\"telemetry_age_ms\":%lu,"
                             "\"range_mm\":%lu,\"range_valid\":%s,\"rssi\":%d,\"snr\":%d,\"quality\":%.3f}",
                             (unsigned)peer->node_id,
                             peer->gnss_valid ? "true" : "false",
                             (long)peer->position.lat_e7,
                             (long)peer->position.lon_e7,
                             (long)peer->position.alt_mm,
+                            position_source_to_json(source),
+                            solution_is_displayable(source, status) ? "true" : "false",
+                            solution_is_degraded(source, status) ? "true" : "false",
+                            (unsigned long)telemetry_age_ms,
                             (unsigned long)peer->range_mm,
                             peer->range_valid ? "true" : "false",
                             (int)peer->rssi_dbm,
