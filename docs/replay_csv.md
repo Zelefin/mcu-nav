@@ -1,7 +1,8 @@
 # Replay CSV
 
-Replay makes the navigation core reproducible without real GNSS, radio hardware,
-ESP32-S3, STM32, simulator, or flight-controller integration.
+Replay makes the navigation core reproducible without real GNSS, radio
+hardware, platform firmware, simulator execution, or flight-controller
+integration.
 
 ```mermaid
 flowchart LR
@@ -86,6 +87,12 @@ same strings emitted in `solution.csv`, such as `RADIO_NAV_OK`, `RADIO_3D`,
 `REJECTED`, and `NOT_ENOUGH_ANCHORS`.
 
 ## Input: events.csv
+
+Current replay range rows are local-to-peer fixtures: `peer_id` is the remote
+anchor and the local node is implicit. When the ESP32 TDMA implementation adds
+endpoint-bearing range payloads, this schema, fixtures, and replay tests should
+change in the same commit to include `from_id` / `to_id` pair ranges and
+third-party pair observations.
 
 Required header:
 

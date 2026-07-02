@@ -4,6 +4,7 @@
 
 enum class HealthState : uint8_t {
   Unknown,
+  Disabled,
   Ok,
   Warn,
   Fail,

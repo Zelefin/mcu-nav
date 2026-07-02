@@ -1,0 +1,728 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>nav-mcu control</title>
+<style>
+  :root { color-scheme: dark; --bg:#0f1216; --panel:#171c23; --line:#262d36; --fg:#e6edf3; --muted:#8b97a6; --accent:#4da3ff; --ok:#3fb950; --warn:#d29922; --bad:#f85149; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 system-ui,sans-serif; background:var(--bg); color:var(--fg); overflow-x:hidden; }
+  header { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  h1 { font-size:15px; margin:0; font-weight:600; letter-spacing:.02em; }
+  .grow { flex:1; }
+  button { background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 12px; cursor:pointer; font:inherit; }
+  button:hover:not(:disabled) { border-color:var(--accent); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#04121f; font-weight:600; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  input { background:#0c0f13; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 8px; font:inherit; }
+  .pill { font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid var(--line); color:var(--muted); }
+  .pill.on { color:var(--ok); border-color:var(--ok); }
+  .pill.off { color:var(--bad); border-color:var(--bad); }
+  main { display:grid; grid-template-columns:minmax(320px,360px) minmax(0,1fr); gap:16px; padding:16px; align-items:start; }
+  @media (max-width: 920px){ main { grid-template-columns:1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; min-width:0; overflow:hidden; }
+  .panel h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 12px; }
+  .kv { display:flex; justify-content:space-between; gap:8px; padding:4px 0; border-bottom:1px dashed var(--line); }
+  .kv:last-child { border-bottom:0; }
+  .kv span:first-child { color:var(--muted); }
+  .kv span:last-child { min-width:0; text-align:right; overflow-wrap:anywhere; }
+  .row { display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap; }
+  .row input { flex:1 1 130px; min-width:0; }
+  table { width:100%; border-collapse:collapse; }
+  th,td { text-align:right; padding:7px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th:first-child, td:first-child { text-align:left; }
+  th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  tbody tr:hover { background:#1b212a; }
+  .stale { opacity:.45; }
+  .ok { color:var(--ok); }
+  .warn { color:var(--warn); }
+  .bad { color:var(--bad); }
+  .mono { font-family:ui-monospace,Menlo,Consolas,monospace; }
+  .compact th,.compact td { padding:5px 6px; }
+  .compact input { width:100%; min-width:90px; }
+  .compact button { padding:4px 8px; }
+  .data-table { table-layout:fixed; font-size:13px; }
+  .data-table th,.data-table td { padding:6px 8px; line-height:1.35; white-space:normal; overflow-wrap:anywhere; }
+  .data-table .num { text-align:right; white-space:nowrap; overflow-wrap:normal; }
+  .data-table .text { text-align:left; }
+  .state-cell { display:flex; align-items:center; justify-content:flex-end; gap:6px; min-width:0; }
+  .info-icon { display:inline-flex; align-items:center; justify-content:center; width:15px; height:15px; flex:0 0 15px; border:1px solid currentColor; border-radius:50%; font:700 10px/1 ui-monospace,Menlo,Consolas,monospace; cursor:help; opacity:.95; }
+  .distance-table col:nth-child(1) { width:31%; }
+  .distance-table col:nth-child(2) { width:12%; }
+  .distance-table col:nth-child(3) { width:14%; }
+  .distance-table col:nth-child(4) { width:9%; }
+  .distance-table col:nth-child(5) { width:8%; }
+  .distance-table col:nth-child(6) { width:13%; }
+  .distance-table col:nth-child(7) { width:13%; }
+  .peer-table col:nth-child(1) { width:21%; }
+  .peer-table col:nth-child(2) { width:11%; }
+  .peer-table col:nth-child(3) { width:8%; }
+  .peer-table col:nth-child(4) { width:7%; }
+  .peer-table col:nth-child(5) { width:7%; }
+  .peer-table col:nth-child(6) { width:7%; }
+  .peer-table col:nth-child(7) { width:14%; }
+  .peer-table col:nth-child(8) { width:14%; }
+  .peer-table col:nth-child(9) { width:11%; }
+  #log { height:160px; overflow:auto; background:#0c0f13; border:1px solid var(--line); border-radius:8px; padding:8px; font-family:ui-monospace,monospace; font-size:12px; color:var(--muted); white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; }
+  .note { color:var(--muted); font-size:12px; }
+  @media (max-width: 1100px) {
+    .data-table { font-size:12px; }
+    .data-table th,.data-table td { padding:5px 6px; }
+  }
+  @media (max-width: 720px) {
+    header { align-items:stretch; }
+    header .grow { display:none; }
+    header button { flex:1 1 auto; }
+    .data-table, .data-table thead, .data-table tbody, .data-table tr, .data-table td { display:block; width:100%; }
+    .data-table colgroup, .data-table thead { display:none; }
+    .data-table tr { border-bottom:1px solid var(--line); padding:6px 0; }
+    .data-table td { display:grid; grid-template-columns:92px minmax(0,1fr); gap:8px; border-bottom:0; padding:4px 0; text-align:left; white-space:normal; }
+    .data-table td::before { content:attr(data-label); color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+    .data-table .num { text-align:left; white-space:normal; }
+    .state-cell { justify-content:flex-start; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>nav-mcu control</h1>
+  <span id="conn" class="pill off">disconnected</span>
+  <span class="grow"></span>
+  <button id="connect" class="primary">Connect</button>
+  <button id="disconnect" disabled>Disconnect</button>
+</header>
+
+<main>
+  <section class="panel" id="nodePanel">
+    <h2>This node</h2>
+    <div class="kv"><span>Name</span><span id="nName" class="mono">—</span></div>
+    <div class="kv"><span>Node ID</span><span id="nId" class="mono">—</span></div>
+    <div class="kv"><span>Mode</span><span id="nMode" class="mono">—</span></div>
+    <div class="kv"><span>Solution</span><span id="nSol" class="mono">—</span></div>
+    <div class="kv"><span>Source</span><span id="nSrc" class="mono">—</span></div>
+    <div class="kv"><span>Reject</span><span id="nReject" class="mono">—</span></div>
+    <div class="kv"><span>Position</span><span id="nPos" class="mono">—</span></div>
+    <div class="kv"><span>GPS</span><span id="nGps" class="mono">—</span></div>
+    <div class="kv"><span>Mock peers</span><span id="nMock" class="mono">—</span></div>
+
+    <div class="row">
+      <input id="nameInput" placeholder="node name" maxlength="23" />
+      <button id="setName" disabled>Save name</button>
+    </div>
+    <div class="row">
+      <input id="nodeIdInput" type="number" min="0" max="3" placeholder="node id" style="width:110px" />
+      <button id="setNodeId" disabled>Set ID</button>
+    </div>
+    <div class="row">
+      <button id="gpsToggle" disabled>Toggle GPS</button>
+      <button id="mockToggle" disabled>Toggle mock</button>
+    </div>
+    <div class="row">
+      <input id="altInput" type="number" placeholder="altitude mm" style="width:130px" />
+      <button id="setAlt" disabled>Set altitude</button>
+    </div>
+    <h2 style="margin-top:18px">Node names</h2>
+    <table class="compact">
+      <thead><tr><th>ID</th><th>Name</th><th>NVS</th></tr></thead>
+      <tbody id="nodeNames"></tbody>
+    </table>
+    <p class="note">This distance-only build shows SX1280 range health first. GNSS-derived fields stay dashed until real GPS/telemetry is enabled.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Distance observations</h2>
+    <table class="data-table distance-table">
+      <colgroup><col><col><col><col><col><col><col></colgroup>
+      <thead><tr><th>Pair</th><th>State</th><th>Distance</th><th>Request</th><th>Age</th><th>RSSI</th><th>SNR</th></tr></thead>
+      <tbody id="distances"><tr><td colspan="7" class="note">No range observations yet.</td></tr></tbody>
+    </table>
+    <h2 style="margin-top:18px">Peer snapshot</h2>
+    <table class="data-table peer-table">
+      <colgroup><col><col><col><col><col><col><col><col><col></colgroup>
+      <thead><tr><th>Node</th><th>Distance</th><th>RSSI</th><th>SNR</th><th>Qual</th><th>GNSS</th><th>Latitude</th><th>Longitude</th><th>Alt</th></tr></thead>
+      <tbody id="peers"><tr><td colspan="9" class="note">No data yet.</td></tr></tbody>
+    </table>
+    <h2 style="margin-top:18px">Serial log</h2>
+    <div id="log"></div>
+    <p class="note" id="support"></p>
+  </section>
+</main>
+
+<script>
+"use strict";
+const BAUD = 115200;
+let port = null, reader = null, writer = null, keepReading = false;
+let currentNodeId = null;
+let lastGps = false, lastMock = false;
+let nodeNameRenderSig = "";
+let lastSnapshot = null;
+
+const DASH = "—";
+const NODE_NAMES_KEY = "nav-mcu.nodeNames.v1";
+const discoveredNodes = new Set();
+const observations = new Map();
+const nodeNames = loadNodeNames();
+
+const $ = (id) => document.getElementById(id);
+const hasNumber = (value) => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
+const fmtDeg = (e7) => hasNumber(e7) ? (Number(e7) / 1e7).toFixed(6) : DASH;
+const fmtM = (mm) => hasNumber(mm) ? (Number(mm) / 1000).toFixed(2) + " m" : DASH;
+const fmtAge = (ms) => ms < 1000 ? "now" : Math.floor(ms / 1000) + "s";
+const fmtSigned = (value, digits = 0) => hasNumber(value) ? Number(value).toFixed(digits) : DASH;
+const fmtQuality = (value) => hasNumber(value) ? Number(value).toFixed(2) : DASH;
+const fmtMeters = (m) => hasNumber(m) ? Number(m).toFixed(2) + " m" : DASH;
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function loadNodeNames() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(NODE_NAMES_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveNodeNames() {
+  try { localStorage.setItem(NODE_NAMES_KEY, JSON.stringify(nodeNames)); } catch (_) {}
+}
+
+function cleanName(value) {
+  return String(value ?? "").trim().slice(0, 23);
+}
+
+function isNodeId(id) {
+  return Number.isInteger(id) && id >= 0 && id < 256;
+}
+
+function discoverNode(id) {
+  if (!isNodeId(id)) return false;
+  if (discoveredNodes.has(id)) return false;
+  discoveredNodes.add(id);
+  return true;
+}
+
+function discoveredNodeIds() {
+  return Array.from(discoveredNodes).sort((a, b) => a - b);
+}
+
+function rememberNodeName(id, name) {
+  if (!isNodeId(id)) return;
+  const clean = cleanName(name);
+  if (!clean || nodeNames[id] === clean) return;
+  discoverNode(id);
+  nodeNames[id] = clean;
+  saveNodeNames();
+  renderNodeNames();
+  renderDistanceObservations();
+  renderPeerSnapshot();
+}
+
+function labelFor(id) {
+  return nodeNames[id] || `node-${id}`;
+}
+
+function orderedPair(aId, bId) {
+  return aId <= bId ? [aId, bId] : [bId, aId];
+}
+
+function pairKey(aId, bId) {
+  const [left, right] = orderedPair(aId, bId);
+  return `${left}:${right}`;
+}
+
+function pairLabel(aId, bId) {
+  const [left, right] = orderedPair(aId, bId);
+  return `${labelFor(left)} #${left} <-> ${labelFor(right)} #${right}`;
+}
+
+function directionLabel(obs) {
+  if (!obs || !Number.isInteger(obs.fromId) || !Number.isInteger(obs.toId)) return DASH;
+  return `${obs.fromId} -> ${obs.toId}`;
+}
+
+function noteTextForObservation(obs) {
+  if (!obs) return "";
+  const direction = directionLabel(obs);
+  const prefix = direction === DASH ? "" : `${direction} `;
+  return `${prefix}${obs.note || ""}`.trim();
+}
+
+function stateCellHtml(obs, displayState) {
+  const note = noteTextForObservation(obs);
+  const state = `<span>${escapeHtml(displayState)}</span>`;
+  if (!note || displayState === "ok") return state;
+  const safeNote = escapeHtml(note);
+  return `${state}<span class="info-icon" title="${safeNote}" aria-label="${safeNote}" tabindex="0">i</span>`;
+}
+
+function observationForPair(aId, bId) {
+  return observations.get(pairKey(aId, bId)) || null;
+}
+
+function peerMap(snapshot = lastSnapshot) {
+  const map = new Map();
+  for (const peer of snapshot?.peers || []) {
+    if (Number.isInteger(peer.id)) map.set(peer.id, peer);
+  }
+  return map;
+}
+
+function hasSolvedPosition(snapshot) {
+  if (!snapshot?.pos) return false;
+  if (!snapshot.src || snapshot.src === "NONE") return false;
+  if (!snapshot.sol || snapshot.sol === "NONE" || snapshot.sol === "REJECTED") return false;
+  return true;
+}
+
+function gnssAvailable(peer) {
+  return !!(peer && peer.gnss);
+}
+
+function bestObservationForNode(nodeId) {
+  if (!Number.isInteger(currentNodeId) || nodeId === currentNodeId) return null;
+  return observationForPair(currentNodeId, nodeId);
+}
+
+function rangeFromPeerOrObservation(peer, obs) {
+  if (peer?.range_valid && Number.isFinite(Number(peer.range_mm))) return Number(peer.range_mm);
+  if (obs?.state === "ok" && Number.isFinite(Number(obs.rangeMm))) return Number(obs.rangeMm);
+  return null;
+}
+
+function distanceTextForObservation(obs) {
+  if (!obs) return DASH;
+  if (obs.state === "ok" && hasNumber(obs.rangeMm)) return fmtM(obs.rangeMm);
+  if (obs.state === "fail" && hasNumber(obs.uncorrectedM)) return fmtMeters(obs.uncorrectedM);
+  return DASH;
+}
+
+function distanceClassForObservation(obs, displayState) {
+  if (displayState === "ok") return "ok";
+  if (obs?.state === "fail" && hasNumber(obs.uncorrectedM)) return "bad";
+  return "";
+}
+
+function logLine(s, bad) {
+  const el = $("log");
+  const line = document.createElement("div");
+  if (bad) line.className = "bad";
+  line.textContent = s;
+  el.appendChild(line);
+  while (el.childNodes.length > 400) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+}
+
+if (!("serial" in navigator)) {
+  $("support").innerHTML = '<span class="bad">Web Serial is not available.</span> Use desktop Chrome or Edge.';
+  $("connect").disabled = true;
+}
+
+function setConnected(on) {
+  $("conn").textContent = on ? "connected" : "disconnected";
+  $("conn").className = "pill " + (on ? "on" : "off");
+  $("connect").disabled = on;
+  $("disconnect").disabled = !on;
+  for (const id of ["setName","setNodeId","gpsToggle","mockToggle","setAlt"]) $(id).disabled = !on;
+  renderNodeNames(true);
+}
+
+async function connect() {
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: BAUD });
+    writer = port.writable.getWriter();
+    setConnected(true);
+    logLine("[connected @ " + BAUD + " baud]");
+    keepReading = true;
+    readLoop();
+    sendCommand({ cmd: "get" });
+  } catch (e) {
+    logLine("connect failed: " + e.message, true);
+  }
+}
+
+async function disconnect() {
+  keepReading = false;
+  try { if (reader) await reader.cancel(); } catch (_) {}
+  try { if (writer) writer.releaseLock(); } catch (_) {}
+  try { if (port) await port.close(); } catch (_) {}
+  port = reader = writer = null;
+  setConnected(false);
+  logLine("[disconnected]");
+}
+
+async function readLoop() {
+  const decoder = new TextDecoder();
+  let buf = "";
+  while (keepReading && port && port.readable) {
+    reader = port.readable.getReader();
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (line) handleLine(line);
+        }
+      }
+    } catch (e) {
+      logLine("read error: " + e.message, true);
+    } finally {
+      reader.releaseLock();
+    }
+  }
+}
+
+function handleLine(line) {
+  if (line.startsWith("{")) {
+    try { render(JSON.parse(line)); return; } catch (_) { /* fall through to log */ }
+  }
+  parseRangeLog(line);
+  logLine(line);
+}
+
+async function sendCommand(obj) {
+  if (!writer) return;
+  const enc = new TextEncoder();
+  await writer.write(enc.encode(JSON.stringify(obj) + "\n"));
+}
+
+function fieldValue(line, key) {
+  const re = new RegExp(`${key}=("[^"]*"|\\S+)`);
+  const match = line.match(re);
+  if (!match) return null;
+  const raw = match[1];
+  return raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw;
+}
+
+function intField(line, key) {
+  const value = fieldValue(line, key);
+  if (value == null) return null;
+  const parsed = parseInt(value, 10);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function floatField(line, key) {
+  const value = fieldValue(line, key);
+  if (value == null) return null;
+  const parsed = parseFloat(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function parseRangeLog(line) {
+  if (!line.includes("range_result ok=")) return;
+  const fromId = intField(line, "from");
+  const toId = intField(line, "to");
+  const requestId = intField(line, "request_id");
+  if (!isNodeId(fromId) || !isNodeId(toId)) return;
+  const ok = fieldValue(line, "ok") === "true";
+  const rawReg = intField(line, "raw_reg");
+  const uncorrectedM = floatField(line, "uncorrected_m");
+  const failReason = fieldValue(line, "range_fail_reason");
+  const source = fieldValue(line, "source") || "log";
+  const noteParts = [fieldValue(line, "note") || (ok ? "range ok" : "range failed")];
+  if (failReason) noteParts.push(`reason=${failReason}`);
+  if (rawReg !== null) noteParts.push(`raw=${rawReg}`);
+  if (uncorrectedM !== null) noteParts.push(`uncorrected=${uncorrectedM.toFixed(2)}m`);
+  if (source === "air_report") noteParts.push("air");
+  recordObservation({
+    fromId,
+    toId,
+    requestId,
+    rangeMm: intField(line, "range_mm"),
+    rssi: floatField(line, "rssi_dbm"),
+    snr: floatField(line, "snr_db"),
+    rawReg,
+    uncorrectedM,
+    failReason,
+    source,
+    state: ok ? "ok" : "fail",
+    note: noteParts.join("; "),
+    discover: true,
+  });
+}
+
+function recordObservation(obs) {
+  if (!isNodeId(obs.fromId) || !isNodeId(obs.toId)) return;
+  let graphChanged = false;
+  if (obs.discover !== false || obs.state === "ok") {
+    graphChanged = discoverNode(obs.fromId) || graphChanged;
+    graphChanged = discoverNode(obs.toId) || graphChanged;
+  }
+  const key = pairKey(obs.fromId, obs.toId);
+  const [aId, bId] = orderedPair(obs.fromId, obs.toId);
+  observations.set(key, {
+    aId,
+    bId,
+    fromId: obs.fromId,
+    toId: obs.toId,
+    requestId: obs.requestId ?? null,
+    rangeMm: obs.rangeMm ?? null,
+    rssi: obs.rssi ?? null,
+    snr: obs.snr ?? null,
+    rawReg: obs.rawReg ?? null,
+    uncorrectedM: obs.uncorrectedM ?? null,
+    failReason: obs.failReason || null,
+    source: obs.source || "",
+    state: obs.state || "unknown",
+    note: obs.note || obs.source || "",
+    updatedAt: Date.now(),
+  });
+  if (graphChanged) renderNodeNames();
+  renderDistanceObservations();
+  renderPeerSnapshot();
+}
+
+function renderDistanceObservations() {
+  const tb = $("distances");
+  const rowsByKey = new Map(observations);
+  const ids = discoveredNodeIds();
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const key = pairKey(ids[i], ids[j]);
+      if (!rowsByKey.has(key)) {
+        rowsByKey.set(key, {
+          aId: ids[i],
+          bId: ids[j],
+          fromId: null,
+          toId: null,
+          requestId: null,
+          rangeMm: null,
+          rssi: null,
+          snr: null,
+          state: "missing",
+          note: "no observation",
+          updatedAt: null,
+        });
+      }
+    }
+  }
+  const pairs = Array.from(rowsByKey.values()).sort((a, b) => a.aId - b.aId || a.bId - b.bId);
+  if (!pairs.length) {
+    tb.innerHTML = '<tr><td colspan="7" class="note">No discovered range observations yet.</td></tr>';
+    return;
+  }
+  tb.innerHTML = "";
+  const now = Date.now();
+  for (const obs of pairs) {
+    const ageMs = obs.updatedAt ? now - obs.updatedAt : null;
+    const tr = document.createElement("tr");
+    const displayState = ageMs !== null && ageMs > 5000 && obs.state === "ok" ? "stale" : obs.state;
+    if (!obs.updatedAt || displayState === "stale" || displayState === "missing") tr.className = "stale";
+    const stateClass = displayState === "ok" ? "ok" : displayState === "stale" || displayState === "missing" ? "warn" : displayState === DASH ? "note" : "bad";
+    const distanceClass = ["mono", "num", distanceClassForObservation(obs, displayState)].filter(Boolean).join(" ");
+    tr.innerHTML =
+      `<td class="text" data-label="Pair">${escapeHtml(pairLabel(obs.aId, obs.bId))}</td>` +
+      `<td class="${stateClass}" data-label="State"><span class="state-cell">${stateCellHtml(obs, displayState)}</span></td>` +
+      `<td class="${distanceClass}" data-label="Distance">${distanceTextForObservation(obs)}</td>` +
+      `<td class="mono num" data-label="Request">${obs?.requestId ?? DASH}</td>` +
+      `<td class="mono num" data-label="Age">${ageMs === null ? DASH : fmtAge(ageMs)}</td>` +
+      `<td class="mono num" data-label="RSSI">${fmtSigned(obs?.rssi, 1)}</td>` +
+      `<td class="mono num" data-label="SNR">${fmtSigned(obs?.snr, 1)}</td>`;
+    tb.appendChild(tr);
+  }
+}
+
+function renderNodeNames(force = false) {
+  if (!force && $("nodeNames").contains(document.activeElement)) return;
+  const ids = discoveredNodeIds();
+  const sig = JSON.stringify({ currentNodeId, ids, names: ids.map((id) => nodeNames[id] || "") });
+  if (!force && sig === nodeNameRenderSig) return;
+  nodeNameRenderSig = sig;
+  const tb = $("nodeNames");
+  if (!ids.length) {
+    tb.innerHTML = '<tr><td colspan="3" class="note">No discovered nodes yet.</td></tr>';
+    return;
+  }
+  tb.innerHTML = "";
+  for (const id of ids) {
+    const tr = document.createElement("tr");
+    const nameTd = document.createElement("td");
+    const input = document.createElement("input");
+    input.dataset.nodeNameId = String(id);
+    input.maxLength = 23;
+    input.value = labelFor(id);
+    nameTd.appendChild(input);
+
+    const actionTd = document.createElement("td");
+    if (currentNodeId === id) {
+      const button = document.createElement("button");
+      button.textContent = "Save";
+      button.disabled = !writer;
+      button.dataset.persistNameId = String(id);
+      actionTd.appendChild(button);
+    } else {
+      actionTd.innerHTML = '<span class="note">connect</span>';
+    }
+
+    tr.innerHTML = `<td class="mono">#${id}</td>`;
+    tr.appendChild(nameTd);
+    tr.appendChild(actionTd);
+    tb.appendChild(tr);
+  }
+}
+
+function ingestSnapshotPeerRanges(s) {
+  if (!s || !isNodeId(Number(s.node?.id))) return;
+  const nodeId = Number(s.node.id);
+  discoverNode(nodeId);
+  for (const p of s.peers || []) {
+    if (!isNodeId(p.id)) continue;
+    discoverNode(p.id);
+    if (p.range_valid) {
+      recordObservation({
+        fromId: nodeId,
+        toId: p.id,
+        rangeMm: p.range_mm,
+        rssi: p.rssi,
+        snr: p.snr,
+        state: "ok",
+        note: "snapshot",
+        source: "snapshot",
+        discover: true,
+      });
+    } else if (!observationForPair(nodeId, p.id)) {
+      recordObservation({
+        fromId: nodeId,
+        toId: p.id,
+        state: "stale",
+        note: "snapshot stale",
+        source: "snapshot",
+        discover: true,
+      });
+    }
+  }
+}
+
+function renderPeerSnapshot() {
+  const tb = $("peers");
+  const peers = peerMap();
+  const now = Date.now();
+  const ids = discoveredNodeIds();
+  if (!ids.length) {
+    tb.innerHTML = '<tr><td colspan="9" class="note">No discovered nodes yet.</td></tr>';
+    return;
+  }
+  tb.innerHTML = "";
+
+  for (const id of ids) {
+    const peer = peers.get(id);
+    const obs = bestObservationForNode(id);
+    const obsFresh = !!obs && obs.state === "ok" && (now - obs.updatedAt) <= 5000;
+    const rangeMm = rangeFromPeerOrObservation(peer, obs);
+    const hasGnss = gnssAvailable(peer);
+    const tr = document.createElement("tr");
+    const hasInvalidDiagnosticDistance = obs?.state === "fail" && hasNumber(obs.uncorrectedM);
+    if (id !== currentNodeId && !obsFresh && !hasInvalidDiagnosticDistance) tr.className = "stale";
+
+    const nodeLabel = id === currentNodeId
+      ? `${labelFor(id)} #${id} (this)`
+      : `${labelFor(id)} #${id}`;
+    const rssi = hasNumber(obs?.rssi) ? obs.rssi : (peer?.range_valid && hasNumber(peer?.rssi) ? peer.rssi : null);
+    const snr = hasNumber(obs?.snr) ? obs.snr : (peer?.range_valid && hasNumber(peer?.snr) ? peer.snr : null);
+    const quality = hasGnss && Number.isFinite(Number(peer?.quality)) ? peer.quality : null;
+    const peerDistanceText = id === currentNodeId ? DASH : (rangeMm !== null ? fmtM(rangeMm) : distanceTextForObservation(obs));
+    const peerDistanceClass = id === currentNodeId ? "mono num" : ["mono", "num", distanceClassForObservation(obs, obsFresh ? "ok" : obs?.state)].filter(Boolean).join(" ");
+
+    tr.innerHTML =
+      `<td class="text" data-label="Node">${escapeHtml(nodeLabel)}</td>` +
+      `<td class="${peerDistanceClass}" data-label="Distance">${peerDistanceText}</td>` +
+      `<td class="mono num" data-label="RSSI">${id === currentNodeId ? DASH : fmtSigned(rssi, 1)}</td>` +
+      `<td class="mono num" data-label="SNR">${id === currentNodeId ? DASH : fmtSigned(snr, 1)}</td>` +
+      `<td class="mono num" data-label="Qual">${fmtQuality(quality)}</td>` +
+      `<td data-label="GNSS">${hasGnss ? "yes" : DASH}</td>` +
+      `<td class="mono num" data-label="Latitude">${hasGnss ? fmtDeg(peer.lat_e7) : DASH}</td>` +
+      `<td class="mono num" data-label="Longitude">${hasGnss ? fmtDeg(peer.lon_e7) : DASH}</td>` +
+      `<td class="mono num" data-label="Alt">${hasGnss ? fmtM(peer.alt_mm) : DASH}</td>`;
+    tb.appendChild(tr);
+  }
+}
+
+function render(s) {
+  if (!s || !s.node) return;
+  lastSnapshot = s;
+  const nodeId = Number(s.node.id);
+  if (isNodeId(nodeId)) {
+    currentNodeId = nodeId;
+    discoverNode(nodeId);
+  }
+  rememberNodeName(currentNodeId, s.node.name);
+  ingestSnapshotPeerRanges(s);
+  lastGps = !!s.node.gps; lastMock = !!s.node.mock;
+  $("nName").textContent = s.node.name || "(unnamed)";
+  $("nId").textContent = s.node.id;
+  $("nodeIdInput").value = s.node.id;
+  if (document.activeElement !== $("nameInput")) $("nameInput").value = s.node.name || "";
+  $("nMode").textContent = s.mode || "—";
+  $("nSol").textContent = s.sol || "—";
+  $("nSrc").textContent = s.src || "—";
+  $("nReject").textContent = s.reject || "—";
+  $("nPos").textContent = hasSolvedPosition(s) ? fmtDeg(s.pos.lat_e7) + ", " + fmtDeg(s.pos.lon_e7) + " @ " + fmtM(s.pos.alt_mm) : DASH;
+  $("nGps").textContent = lastGps ? "on (local GNSS)" : "off (trilateration)";
+  $("nMock").textContent = lastMock ? "on" : "off";
+  renderNodeNames();
+  renderDistanceObservations();
+  renderPeerSnapshot();
+}
+
+$("connect").onclick = connect;
+$("disconnect").onclick = disconnect;
+$("setName").onclick = () => {
+  const v = cleanName($("nameInput").value);
+  if (!v) return;
+  if (Number.isInteger(currentNodeId)) rememberNodeName(currentNodeId, v);
+  sendCommand({ cmd: "name", value: v });
+};
+$("setNodeId").onclick = () => {
+  const v = parseInt($("nodeIdInput").value, 10);
+  if (!Number.isNaN(v) && v >= 0 && v <= 3) sendCommand({ cmd: "node_id", id: v });
+};
+$("gpsToggle").onclick = () => sendCommand({ cmd: "gps", enabled: !lastGps });
+$("mockToggle").onclick = () => sendCommand({ cmd: "mock", enabled: !lastMock });
+$("setAlt").onclick = () => { const v = parseInt($("altInput").value, 10); if (!Number.isNaN(v)) sendCommand({ cmd: "alt", alt_mm: v }); };
+$("nodeNames").addEventListener("input", (event) => {
+  const id = parseInt(event.target.dataset.nodeNameId, 10);
+  if (Number.isNaN(id)) return;
+  const name = cleanName(event.target.value);
+  if (name) {
+    nodeNames[id] = name;
+    saveNodeNames();
+    if (id === currentNodeId && document.activeElement !== $("nameInput")) $("nameInput").value = name;
+    renderDistanceObservations();
+    renderPeerSnapshot();
+  }
+});
+$("nodeNames").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-persist-name-id]");
+  if (!button) return;
+  const id = parseInt(button.dataset.persistNameId, 10);
+  if (id !== currentNodeId) return;
+  const input = $("nodeNames").querySelector(`input[data-node-name-id="${id}"]`);
+  const name = cleanName(input ? input.value : "");
+  if (name) {
+    rememberNodeName(id, name);
+    sendCommand({ cmd: "name", value: name });
+  }
+});
+renderNodeNames(true);
+renderDistanceObservations();
+renderPeerSnapshot();
+setInterval(() => {
+  renderDistanceObservations();
+  renderPeerSnapshot();
+}, 1000);
+window.addEventListener("beforeunload", () => { if (port) disconnect(); });
+</script>
+</body>
+</html>

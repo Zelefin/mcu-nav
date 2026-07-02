@@ -5,11 +5,29 @@ idf_component_register(
         "HealthStatus.cpp"
         "Logger.cpp"
         "RadioHealth.cpp"
+        "NodeConfig.cpp"
+        "ControlChannel.cpp"
         "main.cpp"
+        # Portable navigation core (C11), reused as-is on device.
+        "../core/src/nav_core.c"
+        "../core/src/nav_peer_table.c"
+        "../core/src/nav_quality.c"
+        "../core/src/nav_state_machine.c"
+        "../core/src/nav_trilateration.c"
+        "../core/src/nav_logging.c"
+        "../core/src/nav_radio_protocol.c"
+        "../core/src/nav_gnss.c"
+        "../core/src/nav_nmea.c"
+        "../core/src/nav_mock.c"
+        "../core/src/nav_serial_json.c"
+        "../core/src/nav_telemetry.c"
+        "../core/src/nav_tdma.c"
     INCLUDE_DIRS
         "../include"
+        "../core/include"
     REQUIRES
         RadioLib
         driver
         esp_timer
+        nvs_flash
 )

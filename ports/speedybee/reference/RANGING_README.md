@@ -1,10 +1,10 @@
-# sb24tx-ranging
+# SpeedyBee Ranging Reference
 
 SX1280 ranging bring-up firmware for two SpeedyBee Nano 2.4G / SB24TX-style
 ESP8285 + SX1280 modules.
 
 This is a hardware bring-up example. It intentionally lives outside `core/` and
-does not change the navigation-core radio coprocessor boundary.
+does not change the navigation-core on-device radio architecture.
 
 ## Behavior
 
@@ -52,23 +52,13 @@ until more 2 m / 5 m / 10 m samples are collected.
 - Slave selected: double-blink heartbeat while listening/responding.
 - Radio init failure: rapid blink forever.
 
-## Build
+## Build Status
 
-From the repository root, using the root virtualenv:
-
-```bash
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install platformio
-platformio run -d examples/sb24tx-ranging
-```
-
-Flash one module, then flash the other:
-
-```bash
-. .venv/bin/activate
-platformio run -d examples/sb24tx-ranging -t upload
-```
+This is retained as reference source for SX1280 ranging behavior on SpeedyBee
+hardware. It is not an active standalone PlatformIO project in this repository.
+Use the root `env:speedybee` target for current SpeedyBee navigation-node
+firmware, or port this reference into an explicit bring-up project before
+flashing it.
 
 The module has no USB. Connect a CP210x/USB-TTL adapter to the UART pads:
 
@@ -91,12 +81,8 @@ then release it before upload.
 4. Go back to the laptop about 2 m away.
 5. Connect the second module through CP210x.
 6. Let the 5-second role window expire so it becomes `master`.
-7. Open the monitor:
-
-```bash
-. .venv/bin/activate
-platformio -d examples/sb24tx-ranging device monitor
-```
+7. Open a serial monitor for the explicit bring-up project or firmware image
+   being tested.
 
 Successful master output looks like:
 

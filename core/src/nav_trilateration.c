@@ -441,6 +441,16 @@ nav_trilat_status_t nav_trilat_solve_3_anchor_altitude(
     return NAV_TRILAT_OK;
 }
 
+double nav_trilat_distance_m(
+    double lat1_deg, double lon1_deg, double alt1_m,
+    double lat2_deg, double lon2_deg, double alt2_m
+)
+{
+    const nav_vec3_t a = geodetic_to_ecef(lat1_deg, lon1_deg, alt1_m);
+    const nav_vec3_t b = geodetic_to_ecef(lat2_deg, lon2_deg, alt2_m);
+    return vec_norm(vec_sub(a, b));
+}
+
 const char *nav_trilat_status_to_string(nav_trilat_status_t status)
 {
     switch (status) {

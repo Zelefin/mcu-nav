@@ -7,7 +7,7 @@ The repository-root ESP-IDF diagnostic firmware logs directly to the configured
 ESP-IDF console with one complete line per write:
 
 ```text
-t=1234ms [INFO] [SYSTEM] Health summary: RADIO=OK GPS=WARN COMPASS=OK | ...
+t=1234ms [INFO] [SYSTEM] Health summary: RADIO=OK GPS=DISABLED COMPASS=DISABLED | ...
 ```
 
 The `t=` value is milliseconds elapsed since `Logger::begin()`.
@@ -93,6 +93,19 @@ Range update:
 ```text
 t=1000 level=INFO cat=RANGE event=range_update peer=2 request_id=77 range_mm=621957 range_sigma_mm=100 valid=1 rssi_dbm=-61 snr_db=10
 ```
+
+Current replay/core range events are local-to-peer, but the ESP32 distance-only
+firmware logs hardware attempts with explicit `from` and `to` endpoints:
+
+```text
+t=43945ms [WARN] [RANGE] range_result ok=false from=1 to=2 request_id=13 range_fail_reason=RANGING_ENGINE_ERROR raw_reg=-69 uncorrected_m=-1.55 elapsed_ms=14 irq=0x0200 flags="master_result_valid" note="invalid distance"
+t=45403ms [INFO] [RANGE] range_result ok=false from=2 to=0 request_id=5 range_fail_reason=TIMEOUT elapsed_ms=359 error=-901 note="ranging timeout" source=air_report heard_by=1 report_rssi_dbm=-53.0 report_snr_db=13.5
+```
+
+`source=air_report` means the connected node heard another node's compact
+best-effort range report over SX1280 packet RX. Those third-party pair ranges
+are network-health/control-app observations only and must not be treated as
+anchor updates for the local solver.
 
 ## Replay Outputs
 

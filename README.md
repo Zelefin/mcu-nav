@@ -2,42 +2,55 @@
 
 Portable navigation-brain firmware for a group UAV navigation system.
 
-This repository owns the main MCU navigation core, host tests, diagnostics,
-documentation, and future host ports. It does not implement the ESP8285/SX1280
-radio firmware, real GNSS hardware drivers, or flight-controller output.
+This repository owns the main MCU navigation core, ESP navigation-node firmware,
+host tests, diagnostics, documentation, and replay/simulation tools. It does
+not own separate SX1280 radio firmware, production GNSS hardware adapters, or
+flight-controller output.
 
-## ESP32 Hardware Health Check
+## ESP Navigation Node Firmware
 
-The repository root is also a PlatformIO + ESP-IDF firmware project for
-checking the wiring and basic module functionality of an ESP32
-navigation-node hardware stack. This firmware is a diagnostic only: it does not
-use `core/`, does not implement ranging, and does not implement the future radio
-protocol.
+The repository root is a PlatformIO firmware project that builds the navigation
+node for three targets (see Supported Boards). The firmware is a thin port over
+the portable `core/`: drivers turn sensor/radio data into `nav_event_t`, the core
+runs the peer table and trilateration, and a USB-serial control channel streams a
+JSON snapshot to the browser control-app and applies its commands. A boot
+self-test checks radio ranging before the node runs. In the current
+distance-only firmware slice, GPS and compass runtime health tasks are disabled
+by default.
 
-### What It Checks
+A built-in **mock peer source** lets a single board exercise the full navigation
+core and trilateration with no real peers, so most development needs only one
+ESP32 + SX1280 + GPS. See "Single-node development" and "Control app" below.
+
+### Boot Self-Test Checks
 
 - E28-2G4M12SX / SX128x radio over SPI with RadioLib.
-- Radio TX by periodically sending a short LoRa health packet.
-- Radio RX by listening for matching packets from another board running this
-  firmware.
-- HGLRC M100-5883 GPS UART with the ESP-IDF UART driver and a fixed-buffer NMEA
-  parser at 115200 baud.
-- QMC5883 compass with the ESP-IDF I2C driver by writing configuration and
-  reading raw XYZ data.
+- Distance-only SX1280 ranging: each node alternates between addressed slave
+  listening and active master scans of other node IDs, so a connected node can
+  discover its own single-hop range links.
+- GPS and compass adapters remain in the tree but are not started in this
+  version; health summaries report `GPS=DISABLED` and `COMPASS=DISABLED`.
+  Re-enable them with `NAV_ENABLE_GPS_HEALTH=1` and
+  `NAV_ENABLE_COMPASS_HEALTH=1` for later GNSS/compass bring-up.
 - Periodic FreeRTOS health summary on the serial console.
 
-Radio summary is `WARN` until at least one TX succeeds and one peer packet is
-received. With only one board powered, `RADIO=WARN` after successful TX is
-expected because RX cannot be proven without a transmitter using the same LoRa
-settings.
+Radio summary is `WARN` until a ranging exchange succeeds. With only one board
+powered, `RADIO=WARN` after successful radio initialization is expected because
+no addressed ranging slave can answer.
 
 ### Supported Boards
 
-- NodeMCU-32S
-- ESP32-S3-DEVKITC-1
+| PlatformIO env | Board | MCU | SDK | Sensors |
+| -------------- | ----- | --- | --- | ------- |
+| `nodemcu-32s` | NodeMCU-32S | ESP32 | ESP-IDF | SX1280 + GPS + compass |
+| `esp32-s3-devkitc-1` | ESP32-S3-DEVKITC-1 | ESP32-S3 | ESP-IDF | SX1280 + GPS + compass |
+| `speedybee` | SpeedyBee Nano 2.4G | ESP8285 | Arduino | SX1280 only (no GPS) |
 
-Board-specific pins are selected by the PlatformIO environment through
-`build_flags`; firmware logic is shared by both targets.
+ESP-IDF is not available on the ESP8285, so the SpeedyBee target builds on the
+Arduino/ESP8266 framework but reuses the same portable `core/`; only the driver
+layer differs. The two ESP32 boards select pins through `build_flags`; SpeedyBee
+pins live in `ports/speedybee/include/board_pins.h`. The SpeedyBee board has no
+GPS, so it defaults to trilateration — ideal for debugging ranging.
 
 ### NodeMCU-32S Wiring
 
@@ -142,6 +155,13 @@ Upload to ESP32-S3-DEVKITC-1:
 pio run -e esp32-s3-devkitc-1 -t upload
 ```
 
+Build and upload for SpeedyBee Nano 2.4G (ESP8285):
+
+```bash
+pio run -e speedybee
+pio run -e speedybee -t upload
+```
+
 Monitor serial output:
 
 ```bash
@@ -164,34 +184,41 @@ t=...ms [INFO] [SYSTEM] Build: Jun 30 2026 12:00:00
 t=...ms [INFO] [SYSTEM] E28/SX128x pin map:
 t=...ms [INFO] [SYSTEM]   SCK=18 MISO=19 MOSI=23 CS=5
 t=...ms [INFO] [SYSTEM]   RST=27 BUSY=26 DIO1=25 DIO2=NC DIO3=NC
-t=...ms [INFO] [RADIO] Initializing SX128x radio over SPI
-t=...ms [OK] [RADIO] SX128x initialized: freq=2445.0 MHz bw=812.5 kHz sf=7 cr=5 power=2 dBm
-t=...ms [OK] [RADIO] RX listen mode started
-t=...ms [OK] [RADIO] TX packet sent: bytes=39 payload="mcu-nav-health board=NodeMCU-32S seq=0"
-t=...ms [OK] [RADIO] RX packet received: bytes=47 RSSI=-48.5 dBm SNR=8.0 dB payload="..."
-t=...ms [INFO] [GPS] UART started at 115200 baud RX=16 TX=17
-t=...ms [OK] [GPS] NMEA data received: sentences=12 new_sentences=yes
-t=...ms [WARN] [GPS] Data received but no location fix yet satellites=0 hdop=0.00
-t=...ms [OK] [COMPASS] QMC5883 detected at 0x0D
-t=...ms [OK] [COMPASS] QMC5883 config write OK
-t=...ms [INFO] [COMPASS] Raw magnetic field: X=123 Y=-45 Z=890
-t=...ms [INFO] [SYSTEM] Health summary: RADIO=OK GPS=WARN COMPASS=OK | radio tx=1 rx=1 gps_bytes=530 gps_sentences=10 compass_xyz=123,-45,890
+t=...ms [INFO] [RADIO] Initializing SX128x distance-only ranging
+t=...ms [OK] [RADIO] SX128x ranging initialized
+t=...ms [INFO] [RANGE] distance-only role node=2 role=single-hop-discovery next_peer=3
+t=...ms [OK] [RANGE] range_result ok=true from=2 to=3 request_id=1 range_mm=3420 uncorrected_m=3.42 raw_reg=123 rssi_dbm=-48.5 snr_db=8.0 elapsed_ms=24 irq=0x0010 flags="master_result_valid"
+t=...ms [INFO] [RANGE] range_result ok=false from=1 to=2 request_id=7 range_fail_reason=TIMEOUT elapsed_ms=359 error=-901 note="ranging timeout" source=air_report heard_by=3 report_rssi_dbm=-54.0 report_snr_db=13.0
+t=...ms [INFO] [GPS] disabled for distance-only firmware
+t=...ms [INFO] [COMPASS] disabled for distance-only firmware
+t=...ms [INFO] [SYSTEM] Health summary: RADIO=OK GPS=DISABLED COMPASS=DISABLED | radio tx=1 rx=1 gps_bytes=0 gps_sentences=0 compass_xyz=0,0,0
 ```
 
-### Radio TX/RX Procedure
+### Distance-Only Ranging Procedure
 
-For a full radio check, flash this firmware to two boards with E28/SX128x
-modules wired. Power both boards and monitor either serial console.
+For a full distance-only check, flash this firmware to the four ESP32 boards
+with E28/SX128x modules wired.
 
-- TX is proven when `TX packet sent` appears.
-- RX is proven when `RX packet received` appears.
-- Both boards must use the same `RADIO_FREQUENCY_MHZ`,
-  `RADIO_BANDWIDTH_KHZ`, `RADIO_SPREADING_FACTOR`, `RADIO_CODING_RATE`,
-  `RADIO_SYNC_WORD`, and `RADIO_PREAMBLE_LEN` build flags.
-- Default frequency is 2445 MHz. Keep antennas attached while transmitting.
+1. Connect to each board with the control app.
+2. Set unique node IDs: one board to `0`, the other boards to `1`, `2`, and
+   `3`.
+3. Connect the control app to any one node when you want to inspect discovered
+   single-hop pair health.
+4. Keep the other nodes powered. Every node listens as an addressed slave and
+   periodically takes a master ranging turn. After each ranging attempt, the
+   master broadcasts a compact best-effort `range_result` report that other
+   nodes can show as `source=air_report`.
+5. Watch the connected node's serial logs or the control-app network view for
+   `range_result ok=true from=<from_id> to=<to_id>` lines and pair distances.
 
-This is a packet smoke test, not time-of-arrival, ranging, slotting, or the
-future radio-coprocessor protocol.
+This mode proves SX1280 distance measurements between modules without GNSS. It
+does not produce `RADIO_3D`. Third-party pair reports are diagnostics for the
+control app only; they are not folded into the local solver anchor table unless
+the connected node is one endpoint of the measurement.
+
+The fixed ranging profile is 2445 MHz, SF7, 1625 kHz bandwidth, coding rate
+4/5, private SX128x sync word, 12-symbol preamble, and addressed ranging address
+`0x4E415600 | node_id`. Keep antennas attached while transmitting.
 
 ### Hardware Safety
 
@@ -234,6 +261,8 @@ future radio-coprocessor protocol.
 
 #### No GPS Bytes
 
+This only applies when `NAV_ENABLE_GPS_HEALTH=1`.
+
 - GPS TX must connect to ESP RX.
 - Confirm `PIN_GPS_RX` for the active environment.
 - Confirm GPS baud is 115200.
@@ -241,11 +270,15 @@ future radio-coprocessor protocol.
 
 #### GPS Bytes Received But No Fix
 
+This only applies when `NAV_ENABLE_GPS_HEALTH=1`.
+
 - This is normal indoors or near windows with poor sky view.
 - Move outdoors and wait for almanac acquisition.
 - Check antenna orientation and module backup battery.
 
 #### Compass Not Found
+
+This only applies when `NAV_ENABLE_COMPASS_HEALTH=1`.
 
 - Confirm SDA/SCL are not swapped.
 - Check 3.3 V power and common GND.
@@ -254,13 +287,19 @@ future radio-coprocessor protocol.
 
 #### Compass Found But Raw Data Is Suspicious
 
+This only applies when `NAV_ENABLE_COMPASS_HEALTH=1`.
+
 - Move or rotate the board and watch whether XYZ changes.
 - Keep the compass away from USB cables, magnets, motors, and high-current
   wires during the check.
 
 #### Serial Monitor Empty On ESP32-S3
 
-- ESP-IDF logs are written to the configured ESP-IDF console.
+- ESP32-S3 builds use the native USB Serial/JTAG port as the primary ESP-IDF
+  console so the control-app can both read snapshots and send JSON commands.
+- If stdout works but commands such as `{"cmd":"node_id","id":2}` do not apply,
+  remove any stale ignored `sdkconfig.esp32-s3-devkitc-1` file or regenerate it
+  from `sdkconfig.defaults.esp32-s3-devkitc-1`.
 - Press reset after opening the monitor.
 - If one USB port is quiet, try the board's USB serial/JTAG port or UART bridge.
 
@@ -281,6 +320,15 @@ board ID from your installed PlatformIO version.
 - C11 portable `nav_core` static library builds on Linux.
 - Event-in, snapshot/log-out architecture is implemented.
 - Peer telemetry and range results update a deterministic peer table.
+- The root ESP32 firmware now includes a distance-only ranging PoC: every node
+  alternates between addressed slave listening and master scans to record
+  single-hop distances without GNSS.
+- GPS and compass runtime health tasks are disabled by default for the
+  distance-only firmware slice.
+- Hardware TDMA range payloads still need to move from implicit local `peer_id`
+  semantics to explicit `from_id` / `to_id` endpoints so every node can display
+  third-party pair ranges in the control app. Only ranges where one endpoint is
+  local should feed the current anchor solver.
 - Forced GPS-denied mode can solve a `RADIO_3D` position from three fresh
   GPS-good peer anchors, three ranges, and a valid local altitude sample.
 - Snapshot diagnostics include an explicit solution source, so forced-denied
@@ -300,8 +348,8 @@ board ID from your installed PlatformIO version.
   `solution.csv`, `peers.csv`, and `compare_report.json`.
 - Portable NMEA parser converts `$GPGGA`/`$GNGGA` and `$GPRMC`/`$GNRMC` byte
   streams into `nav_gnss_sample_t` for `NAV_EVT_LOCAL_GNSS_SAMPLE`.
-- Real hardware ports, UART drivers, radio firmware, UBX parsing, and
-  FC/MAVLink output remain future work.
+- Real GNSS-to-core telemetry, full peer-pair TDMA ranging, endpoint-bearing
+  pair range storage, UBX parsing, and FC/MAVLink output remain future work.
 
 ## Build And Test
 
@@ -372,21 +420,56 @@ Inspect a GNSS NMEA text log with the host dump tool:
 ## Repository Structure
 
 ```text
-platformio.ini   PlatformIO ESP-IDF firmware project for ESP32 health checks.
-include/         ESP-IDF health-check firmware public headers.
-src/             ESP-IDF health-check firmware task implementations.
-core/            Portable C11 navigation core and public headers.
-ports/           Platform adapters. Only POSIX demo exists now.
+CHANGELOG.md     PR-level summary of notable project changes.
+platformio.ini   PlatformIO project: nodemcu-32s, esp32-s3-devkitc-1, speedybee.
+core/            Portable C11 navigation core, app modules, and public headers.
+                 nav_core / nav_peer_table / nav_trilateration / nav_nmea,
+                 plus nav_mock, nav_serial_json, nav_telemetry, nav_tdma.
+include/, src/   ESP-IDF node firmware: drivers, boot self-test, NodeConfig
+                 (NVS persistence), ControlChannel (USB-serial JSON).
+ports/esp32s3/   ESP-IDF port notes.
+ports/speedybee/ Arduino/ESP8266 SpeedyBee node firmware + SX1280 lib + ranging
+                 reference firmware.
+ports/posix/     Host demo of the single-node mock + control-app JSON flow.
+control-app/     Single-file browser control app (Web Serial, desktop Chrome).
 docs/            Architecture, data model, logging, replay, and protocol docs.
-tools/replay/    Deterministic CSV replay runner.
-tools/gnss/      Host NMEA log dump tool using the portable parser.
-tools/sim/       Deterministic scenario-to-replay-input generator.
-tools/plot/      Replay-output PNG diagnostics.
-tests/           Host C tests for implemented core modules.
-examples/replay/ Deterministic replay fixtures.
-examples/gnss/   Small NMEA parser fixtures.
-examples/scenarios/ Committed deterministic scenario definitions.
-examples/        Captured log examples and scenario/replay fixtures.
+tools/           Host replay runner, NMEA dump, scenario generator, plotter.
+tests/           Host C tests for core and app modules.
+examples/        Replay/GNSS fixtures and committed deterministic scenarios.
+```
+
+### Control App
+
+Open `control-app/index.html` in desktop Chrome or Edge, click Connect, and pick
+the node's USB-serial port. The app shows the connected node's mode/solution,
+peer snapshot, and distance observations discovered from that serial stream. The
+distance table is built from discovered node IDs plus received `range_result`
+telemetry, including best-effort `source=air_report` reports for pairs measured
+by other nodes. Valid ranges are shown in green. Failed ranging attempts that
+still include an SX1280 `uncorrected_m` diagnostic, such as short-range
+`invalid distance`, show that diagnostic distance in red. Missing or GPS-derived
+fields are shown as `—` until that data exists.
+The node-name controls cache labels in the browser and can persist the connected
+node's name to device storage (NVS on ESP32, EEPROM on SpeedyBee).
+The app also lets you set node ID, toggle the navigation core's GPS preference
+(off = trilateration), toggle the mock peer source, and set the constant
+altitude. In the current distance-only ESP32 firmware, the hardware GPS task is
+not started regardless of that control setting.
+
+The next radio/control update should move this from parsed log/report text into
+structured serial JSON pair-range output (`from_id`, `to_id`, distance,
+freshness, validity, diagnostics). The control channel talks newline-delimited
+JSON (see `nav_serial_json`); Web Serial is desktop-only.
+
+### Single-Node Development
+
+The node injects synthetic peers from the mock source when mock is enabled, so a
+single board produces a real trilateration solution without four nodes. Toggle it
+from the control app. The same flow runs fully on the host:
+
+```bash
+cmake -S . -B build && cmake --build build
+./build/ports/posix/nav_posix_demo
 ```
 
 ## Read First
@@ -418,6 +501,9 @@ examples/        Captured log examples and scenario/replay fixtures.
 ## Next Milestones
 
 1. Add a platform UART adapter that stamps parsed NMEA samples with system time.
-2. Add ESP32-S3/STM32 host adapters without platform dependencies in `core/`.
-3. Implement full radio protocol framing with COBS, CRC32, ACKs, and timeouts.
-4. Expand plot diagnostics beyond PNGs and `plot_summary.json`.
+2. Integrate full ESP32 TDMA radio task: telemetry slots in packet mode,
+   scheduled peer-pair ranging slots through the SX1280 ranging engine.
+3. Extend range events/protocol/control JSON from implicit `peer_id` ranges to
+   endpoint-bearing `from_id` / `to_id` pair ranges.
+4. Implement full radio protocol framing with COBS, CRC32, ACKs, and timeouts.
+5. Expand plot diagnostics beyond PNGs and `plot_summary.json`.

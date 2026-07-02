@@ -10,10 +10,11 @@ stays in `ports/` or future repositories.
 
 - Navigation state machine and solution acceptance/rejection.
 - Peer telemetry and range state.
+- Third-party pair-range observations for network-health/control-app views.
 - Anchor selection and v1 geometry diagnostics.
 - Trilateration adapter using the validated reference project.
 - Structured logs, snapshots, host tests, replay/simulation plans, and docs.
-- Host-side contract for the future radio coprocessor protocol.
+- Over-the-air telemetry/ranging payload contracts shared by ESP nodes.
 
 ## Does Not Belong Here
 
@@ -21,6 +22,8 @@ stays in `ports/` or future repositories.
 - SX1280 SPI drivers or RF timing code.
 - ESP-IDF, STM32 HAL, Arduino, FreeRTOS, POSIX, or UART dependencies in `core/`.
 - Flight-controller integration beyond future output abstractions.
+- Software distance estimation from RSSI, packet timestamps, or host-side packet
+  round trips.
 
 ## Implemented Solve Path
 
@@ -53,9 +56,16 @@ Application code should normally interact through `nav_core_handle_event()`,
 as peer table, local GNSS, local altitude, mode, or snapshot is reserved for
 tests and low-level diagnostic tools.
 
-## Radio Coprocessor Boundary
+## On-Device Radio Boundary
 
-The radio/ranging coprocessor owns RF and ranging mechanics. The main MCU owns
-GNSS validity, peer table, anchor selection, trilateration, state decisions,
-logs, snapshots, and future FC output. The coprocessor firmware is a separate
-future repository.
+Each ESP node drives its SX1280 directly from platform code outside `core/`.
+Telemetry slots use normal packet TX/RX. Ranging slots use the SX1280 ranging
+engine; the scheduled ranging master reads the engine result and injects it into
+the core as `NAV_EVT_RANGE_RESULT`. Hardware TDMA range events must identify the
+pair with `from_id` / `to_id` so a node can display ranges between other nodes
+without treating those third-party observations as local anchor distances.
+
+The portable core owns GNSS validity, peer table, anchor selection,
+trilateration, state decisions, logs, snapshots, and future FC output. It does
+not own SPI, RadioLib, IRQ timing, RF calibration, or the SX1280 ranging mode
+state machine.

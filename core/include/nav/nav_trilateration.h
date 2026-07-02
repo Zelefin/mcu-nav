@@ -41,6 +41,14 @@ nav_trilat_status_t nav_trilat_solve_3_anchor_altitude(
     nav_trilat_result_t *result
 );
 
+/* Straight-line (ECEF chord) distance in metres between two WGS84 geodetic
+ * points. This is the same metric the solver minimises, so a range produced
+ * from it is exactly consistent with the trilateration inputs. */
+double nav_trilat_distance_m(
+    double lat1_deg, double lon1_deg, double alt1_m,
+    double lat2_deg, double lon2_deg, double alt2_m
+);
+
 const char *nav_trilat_status_to_string(nav_trilat_status_t status);
 
 #ifdef __cplusplus

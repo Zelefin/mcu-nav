@@ -28,6 +28,10 @@ add_library(nav_core STATIC
     core/src/nav_gnss.c
     core/src/nav_nmea.c
     core/src/nav_replay.c
+    core/src/nav_mock.c
+    core/src/nav_serial_json.c
+    core/src/nav_telemetry.c
+    core/src/nav_tdma.c
 )
 
 target_include_directories(nav_core PUBLIC core/include)

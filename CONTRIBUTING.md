@@ -185,11 +185,14 @@ ctest --test-dir build -V -R replay
 python3 -m pip install -r requirements-dev.txt
 ```
 
-### 3.3. Збірка та прошивання ESP32 health-check firmware
+### 3.3. Збірка та прошивання ESP node firmware
 
-Корінь репозиторію є PlatformIO-проєктом для діагностичної ESP32 прошивки, яка
-перевіряє wiring та базову працездатність LoRa/SX128x, GPS і QMC5883 compass.
-Команди нижче запускайте з кореня репозиторію.
+Корінь репозиторію є PlatformIO-проєктом прошивки навігаційної ноди для трьох
+таргетів: `nodemcu-32s` та `esp32-s3-devkitc-1` (ESP-IDF) і `speedybee`
+(Arduino/ESP8266). Усі три використовують спільне портативне `core/`. На старті
+виконується boot-self-test (radio/GPS/compass), далі працює нода з control-каналом
+по USB-serial (JSON) для браузерного `control-app/`. Команди нижче запускайте з
+кореня репозиторію.
 
 Якщо `pio` не доступний у `PATH`, використовуйте повний шлях до PlatformIO:
 
@@ -244,19 +247,44 @@ pio device monitor -b 115200
 pio boards espressif32 | grep -i "s3.*devkit"
 ```
 
-#### Швидка перевірка перед PR
+#### SpeedyBee Nano 2.4G (ESP8285)
 
-Перед PR, який змінює health-check firmware або `platformio.ini`, зберіть обидва
-середовища:
+ESP-IDF на ESP8285 недоступний, тому цей таргет збирається на Arduino/ESP8266,
+але лінкує те саме `core/`. Пінаут — у
+[ports/speedybee/include/board_pins.h](ports/speedybee/include/board_pins.h).
 
 ```bash
+pio run -e speedybee
+pio run -e speedybee -t upload
+```
+
+#### Швидка перевірка перед PR
+
+Перед PR, який змінює прошивку, `core/` або `platformio.ini`, зберіть усі три
+середовища і проженіть host-тести:
+
+```bash
+cmake -S . -B build && cmake --build build && ctest --test-dir build
 pio run -e nodemcu-32s
 pio run -e esp32-s3-devkitc-1
+pio run -e speedybee
 ```
 
 Для повної radio TX/RX перевірки потрібні дві плати з однаковою прошивкою та
 однаковими RadioLib build flags. Одна плата може підтвердити radio init і TX,
 але RX підтверджується лише коли друга плата передає сумісні packets.
+
+### 3.4. Changelog для PR
+
+Оновлюйте [CHANGELOG.md](CHANGELOG.md) у тому самому PR, якщо зміна впливає на
+поведінку, протокол або data model, replay fixtures, build targets, публічну
+документацію чи спосіб роботи команди. Запис має бути коротким і читабельним:
+що змінилося, чому це важливо для firmware/replay/control-app, і чи потрібна
+міграція.
+
+Не перетворюйте changelog на список commit-ів. Деталі лишаються в документації,
+ADR, тестах і PR-описі; changelog — це стислий журнал того, що команда має
+побачити при рев'ю та після merge.
 
 ---
 
@@ -438,7 +466,8 @@ gh pr merge <номер> --squash --delete-branch
 - **Потік даних.** Дотримуйтесь моделі «подія на вхід → snapshot/log на вихід».
   Ядро володіє своїм внутрішнім станом.
 - **Тести й документація.** Будь-яка зміна поведінки супроводжується тестами та
-  оновленням відповідних документів у [`docs/`](docs/).
+  оновленням відповідних документів у [`docs/`](docs/) і, коли зміна помітна для
+  команди або користувачів прошивки, записом у [CHANGELOG.md](CHANGELOG.md).
 - **Детермінізм.** Реплей і сценарії мають лишатися відтворюваними; не додавайте
   випадковість у `nav_replay`.
 - **Скіли — частина процесу.** Не пишіть фічу «з голови», коли можна загострити

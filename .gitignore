@@ -13,3 +13,4 @@ __pycache__/
 dependencies.lock
 sdkconfig.*
 !sdkconfig.defaults*
+.DS_Store

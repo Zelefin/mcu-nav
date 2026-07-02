@@ -60,6 +60,8 @@ const char *toString(HealthState state) {
   switch (state) {
     case HealthState::Unknown:
       return "UNKNOWN";
+    case HealthState::Disabled:
+      return "DISABLED";
     case HealthState::Ok:
       return "OK";
     case HealthState::Warn:
