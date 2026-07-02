@@ -41,10 +41,10 @@ async function expectMarkersInsideMap(page) {
     const inside = markers.filter((box) =>
       box.width > 0 &&
       box.height > 0 &&
-      box.right >= mapBox.left &&
-      box.left <= mapBox.right &&
-      box.bottom >= mapBox.top &&
-      box.top <= mapBox.bottom
+      box.left >= mapBox.left &&
+      box.right <= mapBox.right &&
+      box.top >= mapBox.top &&
+      box.bottom <= mapBox.bottom
     );
     return {
       ok: inside.length === 4,
