@@ -2,6 +2,12 @@
 
 #include "nav/nav_telemetry.h"
 
+static void assert_quality_near(float actual, float expected)
+{
+    const float delta = actual > expected ? actual - expected : expected - actual;
+    assert(delta < 0.003f);
+}
+
 static void test_beacon_roundtrip(void)
 {
     nav_peer_telemetry_t t = {
@@ -67,6 +73,130 @@ static void test_range_roundtrip(void)
     assert(d->valid);
 }
 
+static void test_debug_enable_roundtrip(void)
+{
+    nav_debug_enable_t debug = {
+        .origin_node_id = 2u,
+        .ttl_ms = 1500u,
+    };
+
+    uint8_t bytes[NAV_RADIO_MAX_FRAME_BYTES];
+    size_t len = 0u;
+    assert(nav_telemetry_encode_debug_enable(&debug, 9u, bytes, sizeof(bytes), &len) == NAV_STATUS_OK);
+    assert(len == 9u);
+
+    nav_radio_frame_t frame;
+    assert(nav_radio_decode_frame(bytes, len, &frame) == NAV_STATUS_OK);
+    assert(frame.type == NAV_RADIO_MSG_DEBUG_ENABLE);
+    assert(frame.frame_seq == 9u);
+
+    nav_debug_enable_t decoded;
+    assert(nav_telemetry_decode_debug_enable(&frame, &decoded) == NAV_STATUS_OK);
+    assert(decoded.origin_node_id == 2u);
+    assert(decoded.ttl_ms == 1500u);
+
+    assert(nav_telemetry_encode_debug_enable(&debug, 9u, bytes, 8u, &len) == NAV_STATUS_BAD_FRAME);
+}
+
+static void test_node_quality_roundtrip(void)
+{
+    nav_node_quality_report_t report = {
+        .node_id = 3u,
+        .nav_mode = NAV_MODE_RADIO_NAV_OK,
+        .solution_status = NAV_SOLUTION_RADIO_3D,
+        .solution_source = NAV_SOURCE_RADIO_3D,
+        .num_anchors = 3u,
+        .anchor_ids = {0u, 1u, 2u},
+        .fix_type = NAV_GNSS_FIX_3D,
+        .satellites = 12u,
+        .geometry_score = 0.87f,
+        .total_quality = 0.79f,
+        .residual_rms_mm = 310u,
+        .max_residual_mm = 520u,
+        .hdop_centi = 85u,
+        .hacc_mm = 1200u,
+        .vacc_mm = 2100u,
+        .position = {504529000, 305268000, 183500},
+        .packet_seq = 104u,
+    };
+
+    uint8_t bytes[NAV_RADIO_MAX_FRAME_BYTES];
+    size_t len = 0u;
+    assert(nav_telemetry_encode_node_quality_report(&report, 42u, bytes, sizeof(bytes), &len) == NAV_STATUS_OK);
+    assert(len == 48u);
+
+    nav_radio_frame_t frame;
+    assert(nav_radio_decode_frame(bytes, len, &frame) == NAV_STATUS_OK);
+    assert(frame.type == NAV_RADIO_MSG_NODE_QUALITY_REPORT);
+    assert(frame.frame_seq == 42u);
+
+    nav_node_quality_report_t decoded;
+    assert(nav_telemetry_decode_node_quality_report(&frame, &decoded) == NAV_STATUS_OK);
+    assert(decoded.node_id == 3u);
+    assert(decoded.nav_mode == NAV_MODE_RADIO_NAV_OK);
+    assert(decoded.solution_status == NAV_SOLUTION_RADIO_3D);
+    assert(decoded.solution_source == NAV_SOURCE_RADIO_3D);
+    assert(decoded.num_anchors == 3u);
+    assert(decoded.anchor_ids[0] == 0u);
+    assert(decoded.anchor_ids[1] == 1u);
+    assert(decoded.anchor_ids[2] == 2u);
+    assert(decoded.fix_type == NAV_GNSS_FIX_3D);
+    assert(decoded.satellites == 12u);
+    assert_quality_near(decoded.geometry_score, 0.87f);
+    assert_quality_near(decoded.total_quality, 0.79f);
+    assert(decoded.residual_rms_mm == 310u);
+    assert(decoded.max_residual_mm == 520u);
+    assert(decoded.hdop_centi == 85u);
+    assert(decoded.hacc_mm == 1200u);
+    assert(decoded.vacc_mm == 2100u);
+    assert(decoded.position.lat_e7 == 504529000);
+    assert(decoded.position.lon_e7 == 305268000);
+    assert(decoded.position.alt_mm == 183500);
+    assert(decoded.packet_seq == 104u);
+}
+
+static void test_node_quality_bounds(void)
+{
+    nav_node_quality_report_t report = {
+        .node_id = 1u,
+        .nav_mode = NAV_MODE_NO_NAV_SOLUTION,
+        .solution_status = NAV_SOLUTION_REJECTED,
+        .solution_source = NAV_SOURCE_NONE,
+        .num_anchors = 9u,
+        .anchor_ids = {1u, 2u, 3u},
+        .fix_type = NAV_GNSS_FIX_NONE,
+        .satellites = 0u,
+        .geometry_score = -0.5f,
+        .total_quality = 2.0f,
+        .residual_rms_mm = 70000u,
+        .max_residual_mm = 90000u,
+        .packet_seq = 17u,
+    };
+
+    uint8_t bytes[NAV_RADIO_MAX_FRAME_BYTES];
+    size_t len = 0u;
+    assert(nav_telemetry_encode_node_quality_report(&report, 11u, bytes, sizeof(bytes), &len) == NAV_STATUS_OK);
+
+    nav_radio_frame_t frame;
+    assert(nav_radio_decode_frame(bytes, len, &frame) == NAV_STATUS_OK);
+    nav_node_quality_report_t decoded;
+    assert(nav_telemetry_decode_node_quality_report(&frame, &decoded) == NAV_STATUS_OK);
+    assert(decoded.num_anchors == NAV_TRILAT_ANCHOR_COUNT);
+    assert(decoded.geometry_score == 0.0f);
+    assert(decoded.total_quality == 1.0f);
+    assert(decoded.residual_rms_mm == 65535u);
+    assert(decoded.max_residual_mm == 65535u);
+
+    uint8_t short_frame_bytes[48];
+    for (size_t i = 0u; i < sizeof(short_frame_bytes); ++i) {
+        short_frame_bytes[i] = bytes[i];
+    }
+    short_frame_bytes[5] = 41u;
+    nav_radio_frame_t short_frame;
+    assert(nav_radio_decode_frame(short_frame_bytes, sizeof(short_frame_bytes) - 1u, &short_frame) == NAV_STATUS_OK);
+    assert(nav_telemetry_decode_node_quality_report(&short_frame, &decoded) == NAV_STATUS_BAD_FRAME);
+}
+
 static void test_decode_errors(void)
 {
     nav_event_t ev;
@@ -82,6 +212,9 @@ int main(void)
 {
     test_beacon_roundtrip();
     test_range_roundtrip();
+    test_debug_enable_roundtrip();
+    test_node_quality_roundtrip();
+    test_node_quality_bounds();
     test_decode_errors();
     return 0;
 }

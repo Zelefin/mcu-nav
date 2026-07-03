@@ -8,7 +8,8 @@ log:
 - `NOT_ENOUGH_ANCHORS`: fewer than three peers passed anchor selection.
 - `MISSING_LOCAL_ALTITUDE`: no fresh valid local altitude sample was available.
 - `BAD_GEOMETRY`: accepted anchors had too little horizontal triangle area.
-- `TRILATERATION_FAILED`: the reference-derived C solver did not converge.
+- `TRILATERATION_FAILED`: the reference-derived C solver could not produce a
+  finite least-squares candidate.
 - `RANGE_OUTLIER`: residual thresholds were exceeded after a returned solve.
 - `BAD_POSITION`: peer GNSS was marked valid, but the peer position was outside
   valid WGS84 lat/lon bounds or still the default `{0,0,0}` placeholder.
@@ -58,8 +59,9 @@ For accepted solutions, inspect:
 - replay `solution.csv` columns `residual0_mm`, `residual1_mm`,
   `residual2_mm`, `residual_rms_m`, and `max_residual_m`
 
-Biased inconsistent ranges may cause `TRILATERATION_FAILED` before residual
-threshold logic runs; this reflects the current portable C solver behavior.
+Severely inconsistent ranges may cause `TRILATERATION_FAILED` before residual
+threshold logic runs. If the solver returns a finite candidate, the residual
+gate reports `RANGE_OUTLIER` instead.
 
 ## Stale Telemetry Vs Stale Range
 
@@ -173,8 +175,8 @@ not use an anchor or solution, such as `STALE_RANGE` or `BAD_POSITION`.
 - `test_radio_3d_reject_missing_altitude`: no local altitude.
 - `test_forced_denied_ignores_local_gnss_position`: GNSS is not used as position
   in forced-denied mode.
-- `test_radio_solution_residual_rejected`: biased range currently rejects via
-  trilateration no-convergence.
+- `test_radio_solution_residual_rejected`: biased range rejects via
+  `RANGE_OUTLIER`.
 - `test_beacon_rx_metadata_reaches_peer_diagnostics`: RSSI/SNR stay separate
   from peer telemetry and reach peer diagnostics.
 - `test_packet_seq_and_request_id_are_not_mixed`: beacon packet sequence and

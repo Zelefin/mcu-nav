@@ -42,6 +42,14 @@ assembled locally from directly received peers, viewable by plugging into that
 one node. It is the multi-node face of the per-peer system view.
 _Avoid_: Mesh, dashboard, ground station
 
+**Network map**:
+The spatial rendering of the network view in the telemetry UI: positioned nodes
+plotted on an online geographic map from a single vantage node, with nodes that
+lack a usable position listed in an off-map roster. It reads only the peer
+snapshot, so a node appears once it has a usable GNSS coordinate or an accepted
+navigation solution.
+_Avoid_: Radar, minimap, ground station
+
 **Control channel**:
 The newline-delimited JSON link over a node's USB-serial port used to read its
 snapshot/telemetry and to apply local configuration. It is distinct from the
@@ -84,9 +92,15 @@ navigation solution from real peer telemetry, fresh SX1280 ranges, and local
 altitude after local GPS is disabled on one node.
 _Avoid_: Boot self-test, packet-only smoke test
 
+**GPS-disabled node**:
+A node whose local GNSS is not allowed to become its navigation solution or
+advertised anchor telemetry. The node may still read GNSS bytes for diagnostics
+and can still participate in ranging as a distance-only node.
+_Avoid_: GPS-unplugged node, GPS health disabled
+
 **Working PoC**:
 The first verified end-to-end ESP32 setup that passes the hardware integration
-gate and proves real ranging, GNSS input, control-app GPS disable, and
+gate and proves real ranging, GNSS input, telemetry-UI GPS disable, and
 trilateration fallback on the available boards.
 _Avoid_: Final product, parallel planning phase
 
@@ -176,3 +190,25 @@ _Avoid_: Production radio firmware, navigation-core ranging
 A hardware bring-up example with its own PlatformIO project files, source, and
 README under its `examples/` directory.
 _Avoid_: Root firmware mode, shared application target
+
+**Debug telemetry mode**:
+A runtime-only, off-by-default state in which the connected node asks peers over
+the radio to broadcast their node quality reports, so one vantage node can
+assemble a whole-system quality picture. It never preempts ranging.
+_Avoid_: Diagnostics mode, verbose mode, full diagnostics stream
+
+**Node quality report**:
+A compact, on-demand, best-effort per-node summary of that node's nav mode,
+solution status/source, trilateration-quality metrics, and GNSS health,
+broadcast only while debug telemetry mode is active.
+_Avoid_: Detailed telemetry, full telemetry, STATS dump
+
+**Debug-enable broadcast**:
+The connected node's periodic best-effort packet that keeps peers in debug
+telemetry mode for a short TTL; peers auto-revert to off when it stops.
+_Avoid_: Poll, command, ping
+
+**Capture session**:
+An NDJSON recording of one control-channel session streamed to a disk file for
+later viewing and AI analysis. It is not the volatile serial-log view.
+_Avoid_: Log dump, trace, session recording

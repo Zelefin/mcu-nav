@@ -190,8 +190,8 @@ python3 -m pip install -r requirements-dev.txt
 Корінь репозиторію є PlatformIO-проєктом прошивки навігаційної ноди для трьох
 таргетів: `nodemcu-32s` та `esp32-s3-devkitc-1` (ESP-IDF) і `speedybee`
 (Arduino/ESP8266). Усі три використовують спільне портативне `core/`. На старті
-виконується boot-self-test (radio/GPS/compass), далі працює нода з control-каналом
-по USB-serial (JSON) для браузерного `control-app/`. Команди нижче запускайте з
+виконується boot-self-test (radio/GPS), далі працює нода з control-каналом
+по USB-serial (JSON) для браузерного `telemetry-ui/`. Команди нижче запускайте з
 кореня репозиторію.
 
 Якщо `pio` не доступний у `PATH`, використовуйте повний шлях до PlatformIO:
@@ -279,7 +279,7 @@ pio run -e speedybee
 Оновлюйте [CHANGELOG.md](CHANGELOG.md) у тому самому PR, якщо зміна впливає на
 поведінку, протокол або data model, replay fixtures, build targets, публічну
 документацію чи спосіб роботи команди. Запис має бути коротким і читабельним:
-що змінилося, чому це важливо для firmware/replay/control-app, і чи потрібна
+що змінилося, чому це важливо для firmware/replay/telemetry-ui, і чи потрібна
 міграція.
 
 Не перетворюйте changelog на список commit-ів. Деталі лишаються в документації,

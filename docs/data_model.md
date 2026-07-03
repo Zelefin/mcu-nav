@@ -36,9 +36,15 @@ only when `allow_gnss_altitude_in_demo_forced_denied` is true.
 
 ## Peer State
 
-`nav_peer_state_t` stores one peer's telemetry, range, diagnostics, quality, last
-residual, and last reject reason. Telemetry and range freshness are checked
-against `telemetry_ttl_ms` and `range_ttl_ms`.
+`nav_peer_state_t` stores one peer's latest telemetry, local-to-peer range,
+diagnostics, quality, last residual, and last reject reason. Telemetry and range
+freshness are checked against `telemetry_ttl_ms` and `range_ttl_ms`.
+
+For solver input, a valid range also locks `range_position` and
+`range_position_timestamp_ms`: the peer coordinate that was current when that
+range was accepted. Anchor selection uses this range-paired coordinate instead
+of the latest peer telemetry so a later beacon cannot be combined with an older
+distance measurement.
 
 Beacon packet sequencing and ranging request correlation are separate:
 
@@ -71,7 +77,7 @@ range observations identified by:
 If one endpoint is the local node, the other endpoint may update the existing
 per-peer anchor range used by the solver. If neither endpoint is local, the
 observation is third-party network-health data for logs, replay, and
-`control-app/`; it must not be treated as a local anchor distance unless the
+`telemetry-ui/`; it must not be treated as a local anchor distance unless the
 solver is explicitly extended to consume inter-peer constraints.
 
 ## Anchor Selection
@@ -83,6 +89,9 @@ solver is explicitly extended to consume inter-peer constraints.
 - `range_mm`, `range_sigma_mm`
 - `quality`
 - `reject_reason`
+
+The position fields come from `nav_peer_state_t.range_position`, not necessarily
+the latest displayed peer telemetry.
 
 `nav_anchor_selection_t` contains selected anchors plus rejected node ids and
 per-node reasons. V1 requires three usable anchors. If more than three exist,

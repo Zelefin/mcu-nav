@@ -21,7 +21,7 @@ through the SX1280 ranging engine and does not invent distance data.
 - [ ] Ranging does not use RSSI, packet timing, or host round-trip time as a
       distance source.
 - [ ] Two-node hardware tests show successful and failed attempts clearly in
-      logs or control-app state.
+      logs or telemetry-UI state.
 
 ## Blocked by
 

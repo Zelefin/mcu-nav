@@ -50,6 +50,14 @@ int main(void)
     assert(peer->range_valid);
     assert(peer->last_range_request_id == 43u);
     assert(peer->range_mm == 394135u);
+    assert(peer->range_position_valid);
+    assert(peer->range_position.lat_e7 == 504501000);
+    assert(peer->range_position_timestamp_ms == 1100u);
+
+    t.position.lat_e7 = 504599000;
+    assert(nav_peer_table_update_telemetry(&table, &t, 1250u));
+    assert(peer->position.lat_e7 == 504599000);
+    assert(peer->range_position.lat_e7 == 504501000);
 
     nav_peer_beacon_rx_t beacon = {
         .telemetry = telemetry(2u),

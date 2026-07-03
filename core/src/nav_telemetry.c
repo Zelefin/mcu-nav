@@ -74,6 +74,34 @@ static size_t get_i32(const uint8_t *b, size_t o, int32_t *v)
 #define NAV_TELEMETRY_BEACON_LEN 41u
 #define NAV_TELEMETRY_RANGE_RESULT_LEN 21u
 #define NAV_TELEMETRY_RANGE_FAIL_LEN 13u
+#define NAV_TELEMETRY_DEBUG_ENABLE_LEN 3u
+#define NAV_TELEMETRY_NODE_QUALITY_REPORT_LEN 42u
+
+static uint8_t clamp_quality_to_u8(float value)
+{
+    if (value <= 0.0f) {
+        return 0u;
+    }
+    if (value >= 1.0f) {
+        return 255u;
+    }
+    return (uint8_t)((value * 255.0f) + 0.5f);
+}
+
+static float quality_from_u8(uint8_t value)
+{
+    return (float)value / 255.0f;
+}
+
+static uint16_t saturate_u16(uint32_t value)
+{
+    return value > 65535u ? 65535u : (uint16_t)value;
+}
+
+static uint8_t clamp_anchor_count(uint8_t count)
+{
+    return count > NAV_TRILAT_ANCHOR_COUNT ? NAV_TRILAT_ANCHOR_COUNT : count;
+}
 
 /* ---- encode --------------------------------------------------------------- */
 
@@ -147,7 +175,156 @@ nav_status_t nav_telemetry_encode_range_result(
     return nav_radio_encode_frame(&frame, out, out_capacity, out_len);
 }
 
+nav_status_t nav_telemetry_encode_debug_enable(
+    const nav_debug_enable_t *debug,
+    uint16_t frame_seq,
+    uint8_t *out,
+    size_t out_capacity,
+    size_t *out_len
+)
+{
+    if (debug == NULL || out == NULL || out_len == NULL) {
+        return NAV_STATUS_INVALID_ARGUMENT;
+    }
+    uint8_t payload[NAV_TELEMETRY_DEBUG_ENABLE_LEN];
+    size_t o = 0u;
+    o = put_u8(payload, o, debug->origin_node_id);
+    o = put_u16(payload, o, debug->ttl_ms);
+
+    const nav_radio_frame_t frame = {
+        .type = NAV_RADIO_MSG_DEBUG_ENABLE,
+        .frame_seq = frame_seq,
+        .payload = payload,
+        .payload_len = o,
+    };
+    return nav_radio_encode_frame(&frame, out, out_capacity, out_len);
+}
+
+nav_status_t nav_telemetry_encode_node_quality_report(
+    const nav_node_quality_report_t *report,
+    uint16_t frame_seq,
+    uint8_t *out,
+    size_t out_capacity,
+    size_t *out_len
+)
+{
+    if (report == NULL || out == NULL || out_len == NULL) {
+        return NAV_STATUS_INVALID_ARGUMENT;
+    }
+
+    uint8_t payload[NAV_TELEMETRY_NODE_QUALITY_REPORT_LEN];
+    const uint8_t num_anchors = clamp_anchor_count(report->num_anchors);
+    size_t o = 0u;
+    o = put_u8(payload, o, report->node_id);
+    o = put_u8(payload, o, (uint8_t)report->nav_mode);
+    o = put_u8(payload, o, (uint8_t)report->solution_status);
+    o = put_u8(payload, o, (uint8_t)report->solution_source);
+    o = put_u8(payload, o, num_anchors);
+    for (size_t i = 0u; i < NAV_TRILAT_ANCHOR_COUNT; ++i) {
+        o = put_u8(payload, o, report->anchor_ids[i]);
+    }
+    o = put_u8(payload, o, (uint8_t)report->fix_type);
+    o = put_u8(payload, o, report->satellites);
+    o = put_u8(payload, o, clamp_quality_to_u8(report->geometry_score));
+    o = put_u8(payload, o, clamp_quality_to_u8(report->total_quality));
+    o = put_u16(payload, o, saturate_u16(report->residual_rms_mm));
+    o = put_u16(payload, o, saturate_u16(report->max_residual_mm));
+    o = put_u16(payload, o, report->hdop_centi);
+    o = put_u32(payload, o, report->hacc_mm);
+    o = put_u32(payload, o, report->vacc_mm);
+    o = put_i32(payload, o, report->position.lat_e7);
+    o = put_i32(payload, o, report->position.lon_e7);
+    o = put_i32(payload, o, report->position.alt_mm);
+    o = put_u32(payload, o, report->packet_seq);
+
+    const nav_radio_frame_t frame = {
+        .type = NAV_RADIO_MSG_NODE_QUALITY_REPORT,
+        .frame_seq = frame_seq,
+        .payload = payload,
+        .payload_len = o,
+    };
+    return nav_radio_encode_frame(&frame, out, out_capacity, out_len);
+}
+
 /* ---- decode --------------------------------------------------------------- */
+
+nav_status_t nav_telemetry_decode_debug_enable(const nav_radio_frame_t *frame, nav_debug_enable_t *out)
+{
+    if (frame == NULL || out == NULL) {
+        return NAV_STATUS_INVALID_ARGUMENT;
+    }
+    if (frame->type != NAV_RADIO_MSG_DEBUG_ENABLE) {
+        return NAV_STATUS_NOT_IMPLEMENTED;
+    }
+    if (frame->payload_len < NAV_TELEMETRY_DEBUG_ENABLE_LEN) {
+        return NAV_STATUS_BAD_FRAME;
+    }
+
+    memset(out, 0, sizeof(*out));
+    size_t o = 0u;
+    o = get_u8(frame->payload, o, &out->origin_node_id);
+    (void)get_u16(frame->payload, o, &out->ttl_ms);
+    return NAV_STATUS_OK;
+}
+
+nav_status_t nav_telemetry_decode_node_quality_report(
+    const nav_radio_frame_t *frame,
+    nav_node_quality_report_t *out
+)
+{
+    if (frame == NULL || out == NULL) {
+        return NAV_STATUS_INVALID_ARGUMENT;
+    }
+    if (frame->type != NAV_RADIO_MSG_NODE_QUALITY_REPORT) {
+        return NAV_STATUS_NOT_IMPLEMENTED;
+    }
+    if (frame->payload_len < NAV_TELEMETRY_NODE_QUALITY_REPORT_LEN) {
+        return NAV_STATUS_BAD_FRAME;
+    }
+
+    memset(out, 0, sizeof(*out));
+    uint8_t nav_mode = 0u;
+    uint8_t solution_status = 0u;
+    uint8_t solution_source = 0u;
+    uint8_t fix_type = 0u;
+    uint8_t geometry_score = 0u;
+    uint8_t total_quality = 0u;
+    uint16_t residual_rms_mm = 0u;
+    uint16_t max_residual_mm = 0u;
+    size_t o = 0u;
+    o = get_u8(frame->payload, o, &out->node_id);
+    o = get_u8(frame->payload, o, &nav_mode);
+    o = get_u8(frame->payload, o, &solution_status);
+    o = get_u8(frame->payload, o, &solution_source);
+    o = get_u8(frame->payload, o, &out->num_anchors);
+    out->num_anchors = clamp_anchor_count(out->num_anchors);
+    for (size_t i = 0u; i < NAV_TRILAT_ANCHOR_COUNT; ++i) {
+        o = get_u8(frame->payload, o, &out->anchor_ids[i]);
+    }
+    o = get_u8(frame->payload, o, &fix_type);
+    o = get_u8(frame->payload, o, &out->satellites);
+    o = get_u8(frame->payload, o, &geometry_score);
+    o = get_u8(frame->payload, o, &total_quality);
+    o = get_u16(frame->payload, o, &residual_rms_mm);
+    o = get_u16(frame->payload, o, &max_residual_mm);
+    o = get_u16(frame->payload, o, &out->hdop_centi);
+    o = get_u32(frame->payload, o, &out->hacc_mm);
+    o = get_u32(frame->payload, o, &out->vacc_mm);
+    o = get_i32(frame->payload, o, &out->position.lat_e7);
+    o = get_i32(frame->payload, o, &out->position.lon_e7);
+    o = get_i32(frame->payload, o, &out->position.alt_mm);
+    (void)get_u32(frame->payload, o, &out->packet_seq);
+
+    out->nav_mode = (nav_mode_t)nav_mode;
+    out->solution_status = (nav_solution_status_t)solution_status;
+    out->solution_source = (nav_solution_source_t)solution_source;
+    out->fix_type = (nav_gnss_fix_type_t)fix_type;
+    out->geometry_score = quality_from_u8(geometry_score);
+    out->total_quality = quality_from_u8(total_quality);
+    out->residual_rms_mm = residual_rms_mm;
+    out->max_residual_mm = max_residual_mm;
+    return NAV_STATUS_OK;
+}
 
 static nav_status_t decode_beacon(
     const nav_radio_frame_t *frame,

@@ -24,9 +24,12 @@ static constexpr uint8_t LORA_EXPLICIT_HEADER = 0x00;
 static constexpr uint8_t LORA_CRC_ENABLE = 0x20;
 static constexpr uint8_t LORA_IQ_STD = 0x40;
 static constexpr uint8_t LORA_PREAMBLE_12_SYMBOLS = 0x0C;
-static constexpr uint8_t LORA_PAYLOAD_LENGTH_8 = 0x08;
+static constexpr uint8_t LORA_PAYLOAD_LENGTH_MAX = 0xFF;
 static constexpr uint8_t RADIO_RAMP_20_US = 0xE0;
 static constexpr uint8_t RADIO_TX_POWER_10_DBM = 28;  // Pout = -18 + power
+static constexpr uint8_t RADIO_TX_POWER_2_DBM = 20;   // Pout = -18 + power
+static constexpr uint8_t LORA_SYNC_WORD_PRIVATE = 0x12;
+static constexpr uint8_t LORA_SYNC_WORD_CONTROL = 0x44;
 static constexpr float RANGING_BW_MHZ = 1.625f;
 
 static SPISettings kSpi(8000000, MSBFIRST, SPI_MODE0);
@@ -40,7 +43,7 @@ bool SX1280::waitBusy(uint32_t timeout_us) {
     if ((uint32_t)(micros() - start) > timeout_us) {
       return false;
     }
-    yield();
+    delayMicroseconds(50);
   }
   return true;
 }
@@ -88,6 +91,20 @@ void SX1280::writeRegister(uint16_t addr, uint8_t value) {
   writeCommand(OP_WRITE_REGISTER, p, 3);
 }
 
+void SX1280::writeRegister(uint16_t addr, const uint8_t *values, uint8_t n) {
+  waitBusy();
+  SPI.beginTransaction(kSpi);
+  digitalWrite(_nss, LOW);
+  SPI.transfer(OP_WRITE_REGISTER);
+  SPI.transfer((uint8_t)(addr >> 8));
+  SPI.transfer((uint8_t)(addr & 0xFF));
+  for (uint8_t i = 0; i < n; i++) {
+    SPI.transfer(values[i]);
+  }
+  digitalWrite(_nss, HIGH);
+  SPI.endTransaction();
+}
+
 uint8_t SX1280::readRegister(uint16_t addr) {
   waitBusy();
   SPI.beginTransaction(kSpi);
@@ -114,6 +131,111 @@ uint8_t SX1280::getStatus() {
   return status;
 }
 
+uint8_t SX1280::getPacketType() {
+  uint8_t packet_type = 0xFF;
+  readCommand(OP_GET_PACKET_TYPE, &packet_type, 1);
+  return packet_type;
+}
+
+void SX1280::writeBuffer(const uint8_t *data, uint8_t n, uint8_t offset) {
+  waitBusy();
+  SPI.beginTransaction(kSpi);
+  digitalWrite(_nss, LOW);
+  SPI.transfer(OP_WRITE_BUFFER);
+  SPI.transfer(offset);
+  for (uint8_t i = 0; i < n; i++) {
+    SPI.transfer(data[i]);
+  }
+  digitalWrite(_nss, HIGH);
+  SPI.endTransaction();
+}
+
+void SX1280::readBuffer(uint8_t *data, uint8_t n, uint8_t offset) {
+  waitBusy();
+  SPI.beginTransaction(kSpi);
+  digitalWrite(_nss, LOW);
+  SPI.transfer(OP_READ_BUFFER);
+  SPI.transfer(offset);
+  SPI.transfer(0x00);
+  for (uint8_t i = 0; i < n; i++) {
+    data[i] = SPI.transfer(0x00);
+  }
+  digitalWrite(_nss, HIGH);
+  SPI.endTransaction();
+}
+
+void SX1280::setPacketType(PacketType type) {
+  uint8_t packet_type = (uint8_t)type;
+  writeCommand(OP_SET_PACKET_TYPE, &packet_type, 1);
+}
+
+void SX1280::setBufferBaseAddress(uint8_t tx_base, uint8_t rx_base) {
+  uint8_t buffer_base[2] = {tx_base, rx_base};
+  writeCommand(OP_SET_BUFFER_BASE_ADDRESS, buffer_base, 2);
+}
+
+void SX1280::setModulationParams(uint8_t p1, uint8_t p2, uint8_t p3) {
+  uint8_t modulation[3] = {p1, p2, p3};
+  writeCommand(OP_SET_MODULATION_PARAMS, modulation, 3);
+}
+
+void SX1280::setPacketParamsLoRa(uint8_t payload_len) {
+  uint8_t packet[7] = {
+      LORA_PREAMBLE_12_SYMBOLS,
+      LORA_EXPLICIT_HEADER,
+      payload_len,
+      LORA_CRC_ENABLE,
+      LORA_IQ_STD,
+      0x00,
+      0x00,
+  };
+  writeCommand(OP_SET_PACKET_PARAMS, packet, 7);
+}
+
+void SX1280::setTxParams(uint8_t power_dbm) {
+  uint8_t tx_params[2] = {power_dbm, RADIO_RAMP_20_US};
+  writeCommand(OP_SET_TX_PARAMS, tx_params, 2);
+}
+
+void SX1280::setLoRaSyncWord(uint8_t sync_word) {
+  const uint8_t data[2] = {
+      (uint8_t)((sync_word & 0xF0) | ((LORA_SYNC_WORD_CONTROL & 0xF0) >> 4)),
+      (uint8_t)(((sync_word & 0x0F) << 4) | (LORA_SYNC_WORD_CONTROL & 0x0F)),
+  };
+  writeRegister(0x0944, data, 2);
+}
+
+bool SX1280::beginLoRa(uint32_t frequency_hz) {
+  pinMode(_nss, OUTPUT);
+  digitalWrite(_nss, HIGH);
+  pinMode(_busy, INPUT);
+
+  SPI.begin();
+  reset();
+  setStandby(STDBY_RC);
+
+  uint8_t regulator = 0x00;  // LDO mode, conservative for bring-up.
+  writeCommand(OP_SET_REGULATOR_MODE, &regulator, 1);
+
+  setPacketType(PACKET_TYPE_LORA);
+  setFrequencyHz(frequency_hz);
+  setBufferBaseAddress();
+  setModulationParams(LORA_SF_7, LORA_BW_1600, LORA_CR_4_5);
+  writeRegister(REG_LORA_SF_CONFIG, 0x37);
+  writeRegister(REG_FREQ_ERROR_COMP, 0x01);
+  setPacketParamsLoRa(LORA_PAYLOAD_LENGTH_MAX);
+  setTxParams(RADIO_TX_POWER_2_DBM);
+  setLoRaSyncWord(LORA_SYNC_WORD_PRIVATE);
+  setDioIrqParams(IRQ_RX_DONE | IRQ_TX_DONE | IRQ_RX_TX_TIMEOUT | IRQ_CRC_ERROR | IRQ_HEADER_ERROR,
+                  IRQ_RX_DONE | IRQ_TX_DONE | IRQ_RX_TX_TIMEOUT | IRQ_CRC_ERROR | IRQ_HEADER_ERROR,
+                  0,
+                  0);
+  clearIrqStatus();
+
+  uint8_t status = getStatus();
+  return status != 0x00 && status != 0xFF && getPacketType() == PACKET_TYPE_LORA;
+}
+
 bool SX1280::beginRanging(RangingRole role, uint32_t frequency_hz,
                           uint32_t ranging_address, uint16_t calibration) {
   pinMode(_nss, OUTPUT);
@@ -127,31 +249,16 @@ bool SX1280::beginRanging(RangingRole role, uint32_t frequency_hz,
   uint8_t regulator = 0x00;  // LDO mode, conservative for bring-up.
   writeCommand(OP_SET_REGULATOR_MODE, &regulator, 1);
 
-  uint8_t packet_type = PACKET_TYPE_RANGING;
-  writeCommand(OP_SET_PACKET_TYPE, &packet_type, 1);
+  setPacketType(PACKET_TYPE_RANGING);
   setFrequencyHz(frequency_hz);
 
-  uint8_t buffer_base[2] = {0x00, 0x80};
-  writeCommand(OP_SET_BUFFER_BASE_ADDRESS, buffer_base, 2);
-
-  uint8_t modulation[3] = {LORA_SF_7, LORA_BW_1600, LORA_CR_4_5};
-  writeCommand(OP_SET_MODULATION_PARAMS, modulation, 3);
+  setBufferBaseAddress();
+  setModulationParams(LORA_SF_7, LORA_BW_1600, LORA_CR_4_5);
   writeRegister(REG_LORA_SF_CONFIG, 0x37);
   writeRegister(REG_FREQ_ERROR_COMP, 0x01);
 
-  uint8_t packet[7] = {
-      LORA_PREAMBLE_12_SYMBOLS,
-      LORA_EXPLICIT_HEADER,
-      LORA_PAYLOAD_LENGTH_8,
-      LORA_CRC_ENABLE,
-      LORA_IQ_STD,
-      0x00,
-      0x00,
-  };
-  writeCommand(OP_SET_PACKET_PARAMS, packet, 7);
-
-  uint8_t tx_params[2] = {RADIO_TX_POWER_10_DBM, RADIO_RAMP_20_US};
-  writeCommand(OP_SET_TX_PARAMS, tx_params, 2);
+  setPacketParamsLoRa(0x08);
+  setTxParams(RADIO_TX_POWER_10_DBM);
 
   setRangingAddress(role, ranging_address);
   setRangingCalibration(calibration);
@@ -177,6 +284,100 @@ bool SX1280::beginRanging(RangingRole role, uint32_t frequency_hz,
 
   uint8_t status = getStatus();
   return status != 0x00 && status != 0xFF;
+}
+
+bool SX1280::transmitPacket(const uint8_t *payload, uint8_t len, uint32_t timeout_ms) {
+  if (payload == nullptr || len == 0) {
+    return false;
+  }
+
+  setStandby(STDBY_RC);
+  if (getPacketType() != PACKET_TYPE_LORA) {
+    setPacketType(PACKET_TYPE_LORA);
+  }
+  setBufferBaseAddress();
+  setPacketParamsLoRa(len);
+  setTxParams(RADIO_TX_POWER_2_DBM);
+  writeBuffer(payload, len);
+  setDioIrqParams(IRQ_TX_DONE | IRQ_RX_TX_TIMEOUT, IRQ_TX_DONE | IRQ_RX_TX_TIMEOUT, 0, 0);
+  clearIrqStatus();
+
+  uint8_t tx[3] = {0x00, 0x00, 0x00};  // no hardware timeout
+  writeCommand(OP_SET_TX, tx, 3);
+
+  const uint32_t started_ms = millis();
+  while ((uint32_t)(millis() - started_ms) < timeout_ms) {
+    const uint16_t irq = getIrqStatus();
+    if (irq & IRQ_TX_DONE) {
+      clearIrqStatus();
+      setStandby(STDBY_RC);
+      return true;
+    }
+    if (irq & IRQ_RX_TX_TIMEOUT) {
+      break;
+    }
+    delay(1);
+  }
+
+  clearIrqStatus();
+  setStandby(STDBY_RC);
+  return false;
+}
+
+bool SX1280::receivePacket(uint8_t *payload,
+                           uint8_t max_len,
+                           uint8_t *out_len,
+                           uint32_t timeout_ms,
+                           PacketStatus *out_status) {
+  if (payload == nullptr || out_len == nullptr || max_len == 0) {
+    return false;
+  }
+  *out_len = 0;
+
+  setStandby(STDBY_RC);
+  if (getPacketType() != PACKET_TYPE_LORA) {
+    setPacketType(PACKET_TYPE_LORA);
+  }
+  setBufferBaseAddress();
+  setPacketParamsLoRa(LORA_PAYLOAD_LENGTH_MAX);
+  setDioIrqParams(IRQ_RX_DONE | IRQ_RX_TX_TIMEOUT | IRQ_CRC_ERROR | IRQ_HEADER_ERROR,
+                  IRQ_RX_DONE | IRQ_RX_TX_TIMEOUT | IRQ_CRC_ERROR | IRQ_HEADER_ERROR,
+                  0,
+                  0);
+  clearIrqStatus();
+
+  uint8_t rx[3] = {0x00, 0xFF, 0xFF};  // continuous RX; host loop enforces timeout.
+  writeCommand(OP_SET_RX, rx, 3);
+
+  const uint32_t started_ms = millis();
+  while ((uint32_t)(millis() - started_ms) < timeout_ms) {
+    const uint16_t irq = getIrqStatus();
+    if (irq & (IRQ_CRC_ERROR | IRQ_HEADER_ERROR | IRQ_RX_TX_TIMEOUT)) {
+      clearIrqStatus();
+      setStandby(STDBY_RC);
+      return false;
+    }
+    if (irq & IRQ_RX_DONE) {
+      uint8_t rx_status[2] = {0, 0};
+      readCommand(OP_GET_RX_BUFFER_STATUS, rx_status, 2);
+      const uint8_t packet_len = rx_status[0];
+      const uint8_t offset = rx_status[1];
+      const uint8_t read_len = packet_len < max_len ? packet_len : max_len;
+      readBuffer(payload, read_len, offset);
+      *out_len = read_len;
+      if (out_status != nullptr) {
+        *out_status = readPacketStatus();
+      }
+      clearIrqStatus();
+      setStandby(STDBY_RC);
+      return packet_len <= max_len;
+    }
+    delay(1);
+  }
+
+  clearIrqStatus();
+  setStandby(STDBY_RC);
+  return false;
 }
 
 void SX1280::setStandby(Standby mode) {

@@ -13,6 +13,7 @@ enum class LogLevel : uint8_t {
 
 namespace Logger {
 void begin();
+void writeLine(const char *line);
 void logf(LogLevel level, const char *tag, const char *format, ...);
 void okf(const char *tag, const char *format, ...);
 void failf(const char *tag, const char *format, ...);

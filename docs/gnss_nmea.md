@@ -112,10 +112,10 @@ remains the forced-denied outcome.
 
 ## Limitations
 
-- No hardware-to-core ESP-IDF GNSS event adapter is implemented yet. The root
-  firmware has GPS UART health reading, while this parser remains portable.
+- The ESP32 firmware includes a hardware-to-core GNSS event adapter. Other ports
+  still need their own UART adapters.
 - No u-blox UBX binary parser is implemented.
 - No leap-second, date, UTC-to-monotonic, or PPS synchronization logic is
   implemented.
 - No velocity vector is derived from RMC speed/course yet.
-- No hardware GNSS bring-up or flight-controller output is included.
+- No flight-controller output is included.

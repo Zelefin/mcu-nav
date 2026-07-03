@@ -51,12 +51,12 @@ static bool position_valid(nav_position_t position)
            position.lon_e7 >= -1800000000 && position.lon_e7 <= 1800000000;
 }
 
-static bool peer_position_valid(const nav_peer_state_t *peer)
+static bool peer_position_valid(nav_position_t position)
 {
-    if (peer == NULL || !position_valid(peer->position)) {
+    if (!position_valid(position)) {
         return false;
     }
-    return !(peer->position.lat_e7 == 0 && peer->position.lon_e7 == 0 && peer->position.alt_mm == 0);
+    return !(position.lat_e7 == 0 && position.lon_e7 == 0 && position.alt_mm == 0);
 }
 
 static void snapshot_clear_diagnostics(nav_snapshot_t *snapshot)
@@ -253,7 +253,7 @@ nav_status_t nav_select_radio_anchors(const nav_system_t *sys, uint32_t now_ms, 
             sys->config.max_range_sigma_mm
         );
         nav_reject_reason_t reason = quality.reject_reason;
-        if (reason == NAV_REJECT_NONE && peer != NULL && !peer_position_valid(peer)) {
+        if (reason == NAV_REJECT_NONE && peer != NULL && (!peer->range_position_valid || !peer_position_valid(peer->range_position))) {
             reason = NAV_REJECT_BAD_POSITION;
         }
         if (reason == NAV_REJECT_NONE && quality.total_quality < sys->config.min_anchor_quality) {
@@ -265,9 +265,9 @@ nav_status_t nav_select_radio_anchors(const nav_system_t *sys, uint32_t now_ms, 
         }
         nav_anchor_t anchor = {
             .node_id = node_id,
-            .lat_e7 = peer->position.lat_e7,
-            .lon_e7 = peer->position.lon_e7,
-            .alt_mm = peer->position.alt_mm,
+            .lat_e7 = peer->range_position.lat_e7,
+            .lon_e7 = peer->range_position.lon_e7,
+            .alt_mm = peer->range_position.alt_mm,
             .range_mm = peer->range_mm,
             .range_sigma_mm = peer->range_sigma_mm,
             .quality = quality.total_quality,

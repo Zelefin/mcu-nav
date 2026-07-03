@@ -23,7 +23,7 @@ the remote node plus local receive metadata (`rssi_dbm`, `snr_db`).
 
 ## Local GNSS NMEA Update
 
-Future UART ports feed bytes into the portable NMEA parser and wrap emitted
+ESP32 GNSS UART ports feed bytes into the portable NMEA parser and wrap emitted
 samples as normal core events. The parser does not own the UART or clock; the
 adapter stamps `timestamp_ms` with local system/replay time before injection.
 
@@ -46,7 +46,7 @@ TDMA ranging slot. The platform radio driver converts the readable ranging
 result into a range event. The current host/replay event uses an implicit local
 endpoint plus `peer_id`; the ESP32 TDMA integration must carry explicit
 `from_id` / `to_id` endpoints so third-party pair ranges can be displayed by the
-control app. RSSI/SNR remain diagnostics; they are not distance inputs.
+telemetry UI. RSSI/SNR remain diagnostics; they are not distance inputs.
 
 ```mermaid
 sequenceDiagram
@@ -70,13 +70,19 @@ sequenceDiagram
 ```
 
 Third-party pair observations are for network health, diagnostics, replay, and
-`control-app/`. They do not make a peer usable as an anchor for the local solver
+`telemetry-ui/`. They do not make a peer usable as an anchor for the local solver
 unless one endpoint of the range is the local node.
+
+When a local-to-peer range is accepted, the peer table locks the peer coordinate
+that was current at that range update. Later beacon updates may refresh the
+diagnostic peer position, but anchor selection continues using the range-paired
+coordinate until a newer range arrives. This avoids a `RADIO_3D` solve that
+combines one timestamp's coordinates with another timestamp's distance.
 
 The current ESP32 distance-only firmware implements this as a bring-up path:
 after each local SX1280 ranging attempt, the ranging master broadcasts a compact
 best-effort `range_result` text report. Nodes that hear it log the same
-endpoint-bearing observation with `source=air_report`, allowing the control app
+endpoint-bearing observation with `source=air_report`, allowing the telemetry UI
 connected to one node to show pairs measured by other nodes. This report path is
 diagnostic only and is not the final replay/core endpoint-bearing contract.
 

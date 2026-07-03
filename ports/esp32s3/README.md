@@ -5,9 +5,9 @@ bring-up, board pin selection, health checks, persisted config, and the
 USB-serial control channel. The portable core must remain independent from
 ESP-IDF, FreeRTOS, UART drivers, RadioLib, and board-specific headers.
 
-For wiring and module bring-up, use the repository-root PlatformIO diagnostic
-firmware. It checks the radio, GPS, and compass modules without integrating them
-fully into the navigation core.
+For wiring and module bring-up, use the repository-root PlatformIO firmware. It
+checks SX1280 ranging and feeds GPS NMEA into the navigation core through the
+portable parser.
 
 Expected ESP32 integration responsibilities:
 
@@ -21,7 +21,7 @@ Expected ESP32 integration responsibilities:
   and failures into `NAV_EVT_RANGE_FAIL`.
 - Carry both endpoints for range results/failures: `from_id` is the scheduled
   ranging master and `to_id` is the scheduled ranging slave. Third-party pair
-  ranges are network-health/control-app data unless one endpoint is the local
+  ranges are network-health/telemetry-UI data unless one endpoint is the local
   node.
 - Forward structured logs and CSV streams to the selected debug sink.
 - Provide a timer source and persistent configuration storage.

@@ -35,16 +35,6 @@ void setGps(const GpsHealthStatus &status) {
   }
 }
 
-void setCompass(const CompassHealthStatus &status) {
-  if (gHealthMutex != nullptr) {
-    xSemaphoreTake(gHealthMutex, portMAX_DELAY);
-  }
-  gHealth.compass = status;
-  if (gHealthMutex != nullptr) {
-    xSemaphoreGive(gHealthMutex);
-  }
-}
-
 SystemHealth snapshot() {
   if (gHealthMutex != nullptr) {
     xSemaphoreTake(gHealthMutex, portMAX_DELAY);

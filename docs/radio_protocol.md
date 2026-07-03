@@ -17,7 +17,7 @@ A node uses this protocol to:
 Each receiving node feeds incoming packets into its own `core/` as `nav_event_t`,
 which builds the per-peer "network view" (system view) and runs trilateration.
 
-> The **control channel** to the host control-app is a different link: newline
+> The **control channel** to the browser telemetry UI is a different link: newline
 > delimited JSON over the USB-serial port. It is not this radio protocol. See
 > `docs/data_flow.md` / `nav_serial_json`.
 
@@ -63,14 +63,14 @@ Current frame in `nav_radio_protocol.c` (used by host tests and current
 placeholder packet code):
 
 ```text
-magic0_u8 magic1_u8 message_type_u8 packet_seq_u16 payload_length_u8 payload[N]
+magic0_u8 magic1_u8 message_type_u8 frame_seq_u16 payload_length_u8 payload[N]
 ```
 
 Air hardening (future): wrap the payload in COBS with a trailing CRC32 so partial
 or corrupted SX1280 receptions are dropped cleanly:
 
 ```text
-0x00 COBS( magic_u16 protocol_version_u8 message_type_u8 packet_seq_u16
+0x00 COBS( magic_u16 protocol_version_u8 message_type_u8 frame_seq_u16
            flags_u16 payload_length_u16 payload_bytes[N] crc32_u32 ) 0x00
 ```
 
@@ -79,6 +79,7 @@ or corrupted SX1280 receptions are dropped cleanly:
 | message enums (`nav_radio_message_type_t`) | implemented |
 | payload structs | implemented |
 | placeholder encode/decode | implemented (host tests + air v1) |
+| debug telemetry payloads | implemented (`DEBUG_ENABLE`=71, `NODE_QUALITY_REPORT`=72) |
 | COBS + CRC32 air hardening | future |
 
 ## Distance Measurement Source
@@ -106,11 +107,11 @@ understand that a measurement is for pair A-B even when the listener is node C.
 The current C host-test payloads still carry a single `peer_id`, where the local
 node is implicit. That is sufficient for existing local-to-peer replay fixtures,
 but it is not sufficient for ESP32 TDMA hardware integration or a whole-network
-range view in `control-app/`.
+range view in `telemetry-ui/`.
 
 Until solver behavior is explicitly extended, only ranges where one endpoint is
 the local node are eligible anchor ranges. Third-party pair ranges must be kept
-as network-health/control-app observations, not folded into the per-peer anchor
+as network-health/telemetry-UI observations, not folded into the per-peer anchor
 table as local distances.
 
 ## Message Types
@@ -124,9 +125,11 @@ table as local distances.
 | `HEARTBEAT` | peer → all | Liveness / status flags. | liveness only |
 | `STATUS` / `STATS` | peer → all | Detailed state / link counters. | diagnostics only |
 | `LOG_TEXT` | peer → all | Optional diagnostic text. | diagnostic log only |
+| `DEBUG_ENABLE` (71) | connected node → all | Keep peers in debug telemetry mode for a TTL. | none (enables reporting) |
+| `NODE_QUALITY_REPORT` (72) | peer → all | Compact per-node quality summary while debug telemetry mode is active. | diagnostics only (node quality report) |
 
 `SET_NODE_ID` / `SET_CONFIG` are **local configuration** applied on the node
-(now via the control-app over USB-serial), not air messages.
+(now via `telemetry-ui/` over USB-serial), not air messages.
 
 ## Payload Schemas
 
@@ -235,7 +238,7 @@ request_id_u16
 ```
 
 Third-party failures should appear in the same pair-range/network-health view as
-third-party successful ranges so the control app can show stale, failed, or
+third-party successful ranges so the telemetry UI can show stale, failed, or
 missing links between non-local nodes.
 
 ### `HEARTBEAT`
@@ -270,6 +273,56 @@ timeout_ms_u16
 For the scheduled slot, `from_id` must match the ranging master and `to_id` must
 match the ranging slave.
 
+### Debug telemetry messages
+
+Implemented contract for on-demand debug telemetry (see ADR 0004 and
+`docs/prd_ota_debug_telemetry_capture.md`). Transmitted **best-effort** in the
+radio task's idle window; they never preempt ranging. The message-type numbers
+are dedicated ids: `DEBUG_ENABLE` is `71`; `NODE_QUALITY_REPORT` is `72`.
+
+#### `DEBUG_ENABLE` (71)
+
+```text
+origin_node_id_u8
+ttl_ms_u16
+```
+
+The connected node broadcasts this periodically while debug telemetry mode is on.
+A peer enters debug telemetry mode until `now + ttl_ms` and re-arms on each
+received `DEBUG_ENABLE`. When the TTL lapses (the broadcast stops), the peer
+auto-reverts to off. The flag is RAM-only and never persisted (see ADR 0004).
+
+#### `NODE_QUALITY_REPORT` (72)
+
+Compact per-node quality summary. Fixed-width, little-endian; total payload is
+kept well under the best-effort packet limit.
+
+```text
+node_id_u8
+nav_mode_u8
+solution_status_u8
+solution_source_u8
+num_anchors_u8
+anchor_ids_u8[3]
+fix_type_u8
+satellites_u8
+geometry_score_u8        // 0..255 scaled from 0..1
+total_quality_u8         // 0..255 scaled from 0..1
+residual_rms_mm_u16
+max_residual_mm_u16
+hdop_centi_u16
+hacc_mm_u32
+vacc_mm_u32
+lat_e7_i32
+lon_e7_i32
+alt_mm_i32
+packet_seq_u32
+```
+
+The connected node decodes this into a per-peer quality buffer and emits it on the
+control channel as a `node_quality` record (see `docs/capture_ndjson.md`). It is
+diagnostics only: quality reports are never folded into any solver's anchor table.
+
 ## Range Failure Reasons
 
 `nav_range_fail_reason_t`:
@@ -302,6 +355,10 @@ These are radio-layer causes and must not be stored as `nav_reject_reason_t`.
 - `RANGE_FAIL` → `NAV_EVT_RANGE_FAIL` when one endpoint is local; otherwise a
   pair-range/network-health observation.
 - `STATUS` / `HEARTBEAT` / `STATS` / `LOG_TEXT` → diagnostics / liveness only
+- `DEBUG_ENABLE` → enables debug telemetry mode on peers; produces no
+  core event
+- `NODE_QUALITY_REPORT` → per-peer quality buffer → control-channel
+  `node_quality` record; diagnostics only, never an anchor input
 
 Local GNSS and local altitude samples are produced by the node's own sensors
 (or the mock injector / replay), not by the radio.

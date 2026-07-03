@@ -48,6 +48,43 @@ static int json_append_escaped(char *buf, size_t cap, int used, const char *s)
     return json_appendf(buf, cap, used, "\"");
 }
 
+static const char *gnss_fix_type_to_string(nav_gnss_fix_type_t fix_type)
+{
+    switch (fix_type) {
+    case NAV_GNSS_FIX_NONE:
+        return "NONE";
+    case NAV_GNSS_FIX_2D:
+        return "2D";
+    case NAV_GNSS_FIX_3D:
+        return "3D";
+    case NAV_GNSS_FIX_RTK_FLOAT:
+        return "RTK_FLOAT";
+    case NAV_GNSS_FIX_RTK_FIXED:
+        return "RTK_FIXED";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+static int append_snapshot_payload(
+    char *buf,
+    size_t cap,
+    int used,
+    const nav_serial_node_info_t *info,
+    const nav_snapshot_t *snapshot,
+    const nav_peer_table_t *peers
+)
+{
+    if (used < 0) {
+        return used;
+    }
+    const size_t off = (size_t)used;
+    char *dst = off < cap ? buf + off : NULL;
+    const size_t room = off < cap ? cap - off : 0u;
+    const int n = nav_serial_write_snapshot(dst, room, info, snapshot, peers);
+    return n < 0 ? -1 : used + n;
+}
+
 int nav_serial_write_snapshot(
     char *buf,
     size_t cap,
@@ -106,6 +143,131 @@ int nav_serial_write_snapshot(
                             (double)peer->anchor_quality);
     }
     used = json_appendf(buf, cap, used, "]}");
+    return used;
+}
+
+int nav_serial_write_snapshot_record(
+    char *buf,
+    size_t cap,
+    const nav_serial_node_info_t *info,
+    const nav_snapshot_t *snapshot,
+    const nav_peer_table_t *peers
+)
+{
+    if (info == NULL || snapshot == NULL || peers == NULL) {
+        return -1;
+    }
+
+    int used = 0;
+    used = json_appendf(buf, cap, used, "{\"type\":\"snapshot\",\"ts\":%lu,\"data\":",
+                        (unsigned long)snapshot->time_ms);
+    used = append_snapshot_payload(buf, cap, used, info, snapshot, peers);
+    used = json_appendf(buf, cap, used, "}");
+    return used;
+}
+
+int nav_serial_write_node_quality_record(
+    char *buf,
+    size_t cap,
+    const nav_node_quality_report_t *report,
+    uint32_t timestamp_ms,
+    uint32_t age_ms,
+    const char *origin
+)
+{
+    if (report == NULL) {
+        return -1;
+    }
+    const uint8_t anchor_count =
+        report->num_anchors > NAV_TRILAT_ANCHOR_COUNT ? NAV_TRILAT_ANCHOR_COUNT : report->num_anchors;
+
+    int used = 0;
+    used = json_appendf(buf, cap, used, "{\"type\":\"node_quality\",\"ts\":%lu,\"node_id\":%u,\"origin\":",
+                        (unsigned long)timestamp_ms,
+                        (unsigned)report->node_id);
+    used = json_append_escaped(buf, cap, used, origin != NULL ? origin : "peer");
+    used = json_appendf(buf, cap, used,
+                        ",\"age_ms\":%lu,\"data\":{\"nav_mode\":\"%s\",\"solution_status\":\"%s\","
+                        "\"solution_source\":\"%s\",\"residual_rms_m\":%.3f,\"max_residual_m\":%.3f,"
+                        "\"geometry_score\":%.3f,\"total_quality\":%.3f,\"num_anchors\":%u,\"anchor_ids\":[",
+                        (unsigned long)age_ms,
+                        nav_mode_to_string(report->nav_mode),
+                        nav_solution_status_to_string(report->solution_status),
+                        nav_solution_source_to_string(report->solution_source),
+                        (double)report->residual_rms_mm / 1000.0,
+                        (double)report->max_residual_mm / 1000.0,
+                        (double)report->geometry_score,
+                        (double)report->total_quality,
+                        (unsigned)anchor_count);
+    for (uint8_t i = 0u; i < anchor_count; ++i) {
+        used = json_appendf(buf, cap, used, "%s%u", i == 0u ? "" : ",", (unsigned)report->anchor_ids[i]);
+    }
+    used = json_appendf(buf, cap, used,
+                        "],\"fix_type\":\"%s\",\"satellites\":%u,\"hdop_centi\":%u,"
+                        "\"hacc_mm\":%lu,\"vacc_mm\":%lu,\"lat_e7\":%ld,\"lon_e7\":%ld,"
+                        "\"alt_mm\":%ld,\"packet_seq\":%lu}}",
+                        gnss_fix_type_to_string(report->fix_type),
+                        (unsigned)report->satellites,
+                        (unsigned)report->hdop_centi,
+                        (unsigned long)report->hacc_mm,
+                        (unsigned long)report->vacc_mm,
+                        (long)report->position.lat_e7,
+                        (long)report->position.lon_e7,
+                        (long)report->position.alt_mm,
+                        (unsigned long)report->packet_seq);
+    return used;
+}
+
+int nav_serial_write_range_record(char *buf, size_t cap, const nav_serial_range_record_t *record)
+{
+    if (record == NULL) {
+        return -1;
+    }
+    int used = 0;
+    used = json_appendf(buf, cap, used,
+                        "{\"type\":\"range\",\"ts\":%lu,\"from_id\":%u,\"to_id\":%u,"
+                        "\"request_id\":%u,\"ok\":%s",
+                        (unsigned long)record->timestamp_ms,
+                        (unsigned)record->from_id,
+                        (unsigned)record->to_id,
+                        (unsigned)record->request_id,
+                        record->ok ? "true" : "false");
+    if (record->ok) {
+        used = json_appendf(buf, cap, used,
+                            ",\"range_mm\":%lu,\"range_sigma_mm\":%lu",
+                            (unsigned long)record->range_mm,
+                            (unsigned long)record->range_sigma_mm);
+    } else {
+        used = json_appendf(buf, cap, used,
+                            ",\"range_fail_reason\":\"%s\"",
+                            nav_range_fail_reason_to_string(record->range_fail_reason));
+    }
+    used = json_appendf(buf, cap, used,
+                        ",\"rssi_dbm\":%d,\"snr_db\":%d,\"source\":",
+                        (int)record->rssi_dbm,
+                        (int)record->snr_db);
+    used = json_append_escaped(buf, cap, used, record->source != NULL ? record->source : "log");
+    used = json_appendf(buf, cap, used, "}");
+    return used;
+}
+
+int nav_serial_write_log_record(
+    char *buf,
+    size_t cap,
+    uint32_t timestamp_ms,
+    const char *level,
+    const char *tag,
+    const char *text
+)
+{
+    int used = 0;
+    used = json_appendf(buf, cap, used, "{\"type\":\"log\",\"ts\":%lu,\"level\":", (unsigned long)timestamp_ms);
+    used = json_append_escaped(buf, cap, used, level != NULL ? level : "");
+    used = json_appendf(buf, cap, used, ",\"tag\":");
+    used = json_append_escaped(buf, cap, used, tag != NULL ? tag : "");
+    used = json_appendf(buf, cap, used, ",\"text\":");
+    used = json_append_escaped(buf, cap, used, text != NULL ? text : "");
+    used = json_appendf(buf, cap, used, "}");
     return used;
 }
 
@@ -225,6 +387,12 @@ nav_status_t nav_serial_parse_command(const char *line, nav_ctrl_command_t *out)
             return NAV_STATUS_BAD_FRAME;
         }
         return out->int_value >= 0 && out->int_value < (int32_t)NAV_MAX_NODES ? NAV_STATUS_OK : NAV_STATUS_BAD_FRAME;
+    }
+    if (strcmp(cmd, "debug") == 0) {
+        out->type = NAV_CTRL_CMD_SET_DEBUG;
+        return (extract_bool(line, "on", &out->bool_value) || extract_bool(line, "enabled", &out->bool_value))
+                   ? NAV_STATUS_OK
+                   : NAV_STATUS_BAD_FRAME;
     }
 
     out->type = NAV_CTRL_CMD_UNKNOWN;

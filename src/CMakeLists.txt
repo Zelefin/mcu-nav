@@ -1,6 +1,5 @@
 idf_component_register(
     SRCS
-        "CompassHealth.cpp"
         "GpsHealth.cpp"
         "HealthStatus.cpp"
         "Logger.cpp"

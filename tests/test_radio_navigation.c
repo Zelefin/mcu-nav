@@ -357,8 +357,8 @@ static void test_radio_solution_residual_rejected(void)
 
     nav_snapshot_t snapshot = tick_and_snapshot(&sys, 1000u);
     CHECK(snapshot.solution_status == NAV_SOLUTION_REJECTED);
-    CHECK(snapshot.reject_reason == NAV_REJECT_TRILATERATION_FAILED);
-    CHECK(logs_contain(&logs, "reason=TRILATERATION_FAILED"));
+    CHECK(snapshot.reject_reason == NAV_REJECT_RANGE_OUTLIER);
+    CHECK(logs_contain(&logs, "reason=RANGE_OUTLIER"));
 }
 
 static void test_beacon_rx_metadata_reaches_peer_diagnostics(void)

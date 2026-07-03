@@ -345,6 +345,7 @@ nav_trilat_status_t nav_trilat_solve_3_anchor_altitude(
     }
 
     bool converged = false;
+    bool accepted_candidate = false;
     for (int iter = 0; iter < MAX_ITERATIONS; ++iter) {
         result->iterations = iter + 1;
 
@@ -416,6 +417,7 @@ nav_trilat_status_t nav_trilat_solve_3_anchor_altitude(
             memcpy(expected_distances, candidate_expected, sizeof(expected_distances));
             rms = candidate_rms;
             max_abs = candidate_max_abs;
+            accepted_candidate = true;
             lambda = fmax(lambda / 10.0, 1.0e-12);
 
             if (hypot(delta_lat, delta_lon) < CONVERGENCE_STEP_RAD || rms < 1.0e-6) {
@@ -435,7 +437,7 @@ nav_trilat_status_t nav_trilat_solve_3_anchor_altitude(
     memcpy(result->residuals_m, residuals, sizeof(result->residuals_m));
     memcpy(result->expected_distances_m, expected_distances, sizeof(result->expected_distances_m));
 
-    if (!converged && rms >= 1.0e-6) {
+    if (!converged && (!accepted_candidate || !isfinite(rms) || !isfinite(max_abs))) {
         return NAV_TRILAT_ERR_NO_CONVERGENCE;
     }
     return NAV_TRILAT_OK;

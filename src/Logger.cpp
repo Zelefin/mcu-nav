@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "nav/nav_serial_json.h"
+
 #ifndef LOG_LEVEL
 #define LOG_LEVEL 2
 #endif
@@ -69,6 +71,23 @@ void begin() {
   }
 }
 
+void writeLine(const char *line) {
+  if (line == nullptr) {
+    return;
+  }
+  if (gLoggerMutex != nullptr) {
+    xSemaphoreTake(gLoggerMutex, portMAX_DELAY);
+  }
+
+  fwrite(line, 1, strlen(line), stdout);
+  fwrite("\r\n", 1, 2, stdout);
+  fflush(stdout);
+
+  if (gLoggerMutex != nullptr) {
+    xSemaphoreGive(gLoggerMutex);
+  }
+}
+
 void rawf(const char *level, const char *tag, const char *format, va_list args) {
   if (!shouldPrintLevel(level)) {
     return;
@@ -77,35 +96,34 @@ void rawf(const char *level, const char *tag, const char *format, va_list args) 
   char message[224];
   vsnprintf(message, sizeof(message), format, args);
 
-  if (gLoggerMutex != nullptr) {
-    xSemaphoreTake(gLoggerMutex, portMAX_DELAY);
+  const uint32_t elapsedMs = static_cast<uint32_t>(esp_timer_get_time() / 1000ULL) - gLoggerStartMs;
+  char text[320];
+  const int textWritten = snprintf(text,
+                                   sizeof(text),
+                                   "t=%lums [%s] [%s] %s",
+                                   static_cast<unsigned long>(elapsedMs),
+                                   level,
+                                   tag,
+                                   message);
+  if (textWritten >= 0) {
+    size_t textLength = static_cast<size_t>(textWritten);
+    if (textLength >= sizeof(text)) {
+      textLength = sizeof(text) - 1u;
+      text[textLength] = '\0';
+    }
   }
 
-  const uint32_t elapsedMs = static_cast<uint32_t>(esp_timer_get_time() / 1000ULL) - gLoggerStartMs;
-  char line[320];
-  const int written = snprintf(line,
-                               sizeof(line),
-                               "t=%lums [%s] [%s] %s\r\n",
-                               static_cast<unsigned long>(elapsedMs),
-                               level,
-                               tag,
-                               message);
+  char line[1024];
+  const int written = nav_serial_write_log_record(line, sizeof(line), elapsedMs, level, tag, textWritten >= 0 ? text : message);
   if (written >= 0) {
-    size_t lineLength = static_cast<size_t>(written);
-    if (lineLength >= sizeof(line)) {
-      lineLength = sizeof(line) - 1;
-      if (lineLength >= 2) {
-        line[lineLength - 2] = '\r';
-        line[lineLength - 1] = '\n';
-      }
+    if (static_cast<size_t>(written) >= sizeof(line)) {
+      snprintf(line,
+               sizeof(line),
+               "{\"type\":\"log\",\"ts\":%lu,\"level\":\"WARN\",\"tag\":\"LOGGER\",\"text\":\"log record too long\"}",
+               static_cast<unsigned long>(elapsedMs));
     }
 
-    fwrite(line, 1, lineLength, stdout);
-    fflush(stdout);
-  }
-
-  if (gLoggerMutex != nullptr) {
-    xSemaphoreGive(gLoggerMutex);
+    writeLine(line);
   }
 }
 
