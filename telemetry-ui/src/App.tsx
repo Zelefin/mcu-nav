@@ -1,12 +1,14 @@
 import {
   Cable,
   Bug,
+  Circle,
   FlaskConical,
   HardDrive,
   PlugZap,
   RotateCcw,
   Save,
   Satellite,
+  Square,
   Unplug,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -18,8 +20,10 @@ import {
   type SnapshotPayload,
   type SnapshotPeer,
   isNodeId,
+  buildMetaRecord,
   parseFirmwareBuild,
   parseInboundLine,
+  withBrowserTimestamp,
 } from "./lib/controlRecords";
 
 const BAUD_RATE = 115200;
@@ -65,6 +69,9 @@ export function App() {
   const [serialLog, setSerialLog] = useState<SerialLogEntry[]>([]);
   const [firmwareBuild, setFirmwareBuild] = useState("");
   const [debugEnabled, setDebugEnabled] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [recordCount, setRecordCount] = useState(0);
+  const [recordingName, setRecordingName] = useState("");
   const [nameDraft, setNameDraft] = useState("");
   const [nodeIdDraft, setNodeIdDraft] = useState("");
   const [altitudeDraft, setAltitudeDraft] = useState("");
@@ -75,9 +82,16 @@ export function App() {
   const writerRef = useRef<WritableStreamDefaultWriter<Uint8Array> | null>(null);
   const keepReadingRef = useRef(false);
   const logSeqRef = useRef(0);
+  const recordCountRef = useRef(0);
+  const captureRef = useRef<{
+    writable: FileSystemWritableFileStream;
+    chain: Promise<void>;
+    active: boolean;
+  } | null>(null);
 
   const connected = connectionStatus === "connected";
   const serialSupported = typeof navigator !== "undefined" && !!navigator.serial;
+  const fileSystemAccessSupported = typeof window !== "undefined" && !!window.showSaveFilePicker;
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 1000);
@@ -272,16 +286,38 @@ export function App() {
     [addLog, discoverNodes, ingestRange, ingestSnapshot],
   );
 
+  const appendCaptureRecord = useCallback(
+    (record: CaptureDataRecord, tsMs: number) => {
+      const capture = captureRef.current;
+      if (!capture?.active) return;
+      const line = `${JSON.stringify(withBrowserTimestamp(record, tsMs))}\n`;
+      capture.chain = capture.chain
+        .then(() => capture.writable.write(line))
+        .then(() => {
+          recordCountRef.current += 1;
+          setRecordCount(recordCountRef.current);
+        })
+        .catch((error) => {
+          capture.active = false;
+          setRecording(false);
+          addLog({ text: `record write failed: ${(error as Error).message}`, bad: true });
+        });
+    },
+    [addLog],
+  );
+
   const handleLine = useCallback(
     (line: string) => {
-      const parsed = parseInboundLine(line, Date.now());
+      const tsMs = Date.now();
+      const parsed = parseInboundLine(line, tsMs);
       if (!parsed) return;
+      appendCaptureRecord(parsed.record, tsMs);
       ingestRecord(parsed.record, parsed.rangeFromText);
       if (parsed.source === "unknown-json") {
         addLog({ text: `unknown JSON: ${line}`, bad: true });
       }
     },
-    [addLog, ingestRecord],
+    [addLog, appendCaptureRecord, ingestRecord],
   );
 
   const sendCommand = useCallback(async (obj: Record<string, unknown>) => {
@@ -309,7 +345,23 @@ export function App() {
     }
   }, [addLog, connectionStatus, handleLine, sendCommand]);
 
+  const stopRecording = useCallback(async () => {
+    const capture = captureRef.current;
+    if (!capture) return;
+    capture.active = false;
+    captureRef.current = null;
+    setRecording(false);
+    try {
+      await capture.chain;
+      await capture.writable.close();
+      addLog({ text: `[recording stopped: ${recordCountRef.current} records]` });
+    } catch (error) {
+      addLog({ text: `record close failed: ${(error as Error).message}`, bad: true });
+    }
+  }, [addLog]);
+
   const disconnect = useCallback(async () => {
+    await stopRecording();
     if (writerRef.current && debugEnabled) {
       try {
         await sendCommand({ cmd: "debug", on: false });
@@ -339,7 +391,7 @@ export function App() {
     setDebugEnabled(false);
     setConnectionStatus("disconnected");
     addLog({ text: "[disconnected]" });
-  }, [addLog, debugEnabled, sendCommand]);
+  }, [addLog, debugEnabled, sendCommand, stopRecording]);
 
   useEffect(() => {
     const beforeUnload = () => {
@@ -408,6 +460,48 @@ export function App() {
     });
   };
 
+  const startRecording = async () => {
+    if (!connected || !fileSystemAccessSupported || !isNodeId(currentNodeId)) return;
+    try {
+      const handle = await window.showSaveFilePicker?.({
+        suggestedName: `nav-mcu-node-${currentNodeId}-${new Date().toISOString().replace(/[:.]/g, "-")}.ndjson`,
+        types: [
+          {
+            description: "NDJSON capture",
+            accept: { "application/x-ndjson": [".ndjson"], "application/json": [".jsonl"] },
+          },
+        ],
+      });
+      if (!handle) return;
+      const writable = await handle.createWritable();
+      const tsMs = Date.now();
+      const meta = buildMetaRecord({
+        tsMs,
+        firmwareBuild,
+        nodeId: currentNodeId,
+        nodeName: snapshot?.node?.name ?? nodeNames[String(currentNodeId)] ?? "",
+        debug: debugEnabled,
+      });
+      await writable.write(`${JSON.stringify(meta)}\n`);
+      captureRef.current = { writable, chain: Promise.resolve(), active: true };
+      recordCountRef.current = 0;
+      setRecordCount(0);
+      setRecordingName(handle.name ?? "capture.ndjson");
+      setRecording(true);
+      addLog({ text: `[recording started: ${handle.name ?? "capture.ndjson"}]` });
+    } catch (error) {
+      addLog({ text: `record start failed: ${(error as Error).message}`, bad: true });
+    }
+  };
+
+  const toggleRecording = () => {
+    if (recording) {
+      void stopRecording();
+    } else {
+      void startRecording();
+    }
+  };
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -431,11 +525,22 @@ export function App() {
             <Bug size={16} aria-hidden="true" />
             Debug
           </button>
+          <button
+            className={recording ? "recording-active" : ""}
+            onClick={toggleRecording}
+            disabled={!connected || !fileSystemAccessSupported || (!recording && !isNodeId(currentNodeId))}
+          >
+            {recording ? <Square size={15} aria-hidden="true" /> : <Circle size={15} aria-hidden="true" />}
+            {recording ? "Stop" : "Record"}
+          </button>
         </div>
       </header>
 
       {!serialSupported ? (
         <div className="support-warning">Web Serial is unavailable in this browser.</div>
+      ) : null}
+      {serialSupported && !fileSystemAccessSupported ? (
+        <div className="support-warning">File System Access is unavailable in this browser.</div>
       ) : null}
 
       <div className="content-grid">
@@ -683,7 +788,14 @@ export function App() {
           <section className="panel">
             <div className="section-title-row">
               <h2>Serial Log</h2>
-              {firmwareBuild ? <span className="meta-chip">Build {firmwareBuild}</span> : null}
+              <div className="section-chips">
+                {recording ? (
+                  <span className="meta-chip recording-chip">
+                    {recordCount} records{recordingName ? ` -> ${recordingName}` : ""}
+                  </span>
+                ) : null}
+                {firmwareBuild ? <span className="meta-chip">Build {firmwareBuild}</span> : null}
+              </div>
             </div>
             <div className="serial-log" aria-live="polite">
               {serialLog.map((entry) => (

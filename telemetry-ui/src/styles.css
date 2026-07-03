@@ -76,6 +76,12 @@ button.toggle-active {
   color: var(--ok);
 }
 
+button.recording-active {
+  border-color: color-mix(in srgb, var(--record) 75%, var(--line));
+  background: color-mix(in srgb, var(--record) 18%, var(--panel-soft));
+  color: var(--record);
+}
+
 input {
   min-width: 0;
   min-height: 34px;
@@ -227,6 +233,23 @@ th {
 
 .section-title-row h2 {
   margin: 0;
+}
+
+.section-chips {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.recording-chip {
+  border-color: color-mix(in srgb, var(--record) 70%, var(--line));
+  color: var(--record);
+  max-width: min(420px, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .kv {
