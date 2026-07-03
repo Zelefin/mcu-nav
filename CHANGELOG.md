@@ -69,6 +69,9 @@ work.
   distance states.
 - Changed repository-root firmware serial output from bare snapshots and raw
   text logs to typed NDJSON records documented in `docs/capture_ndjson.md`.
+- Changed the SpeedyBee firmware serial output to the same typed NDJSON
+  `snapshot` / `node_quality` / `log` envelope and migrate stale node id `5`
+  EEPROM config to a valid mock-scene node id.
 
 ### Protocol
 
