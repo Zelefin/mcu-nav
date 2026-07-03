@@ -26,7 +26,9 @@ typedef enum {
     NAV_RADIO_MSG_RANGE_RESULT = 67,
     NAV_RADIO_MSG_RANGE_FAIL = 68,
     NAV_RADIO_MSG_STATS = 69,
-    NAV_RADIO_MSG_LOG_TEXT = 70
+    NAV_RADIO_MSG_LOG_TEXT = 70,
+    NAV_RADIO_MSG_DEBUG_ENABLE = 71,
+    NAV_RADIO_MSG_NODE_QUALITY_REPORT = 72
 } nav_radio_message_type_t;
 
 typedef struct {
@@ -100,6 +102,33 @@ typedef struct {
     uint16_t request_id_u16;
     uint16_t timeout_ms_u16;
 } nav_radio_request_range_payload_t;
+
+typedef struct {
+    uint8_t origin_node_id_u8;
+    uint16_t ttl_ms_u16;
+} nav_radio_debug_enable_payload_t;
+
+typedef struct {
+    uint8_t node_id_u8;
+    uint8_t nav_mode_u8;
+    uint8_t solution_status_u8;
+    uint8_t solution_source_u8;
+    uint8_t num_anchors_u8;
+    uint8_t anchor_ids_u8[NAV_TRILAT_ANCHOR_COUNT];
+    uint8_t fix_type_u8;
+    uint8_t satellites_u8;
+    uint8_t geometry_score_u8;
+    uint8_t total_quality_u8;
+    uint16_t residual_rms_mm_u16;
+    uint16_t max_residual_mm_u16;
+    uint16_t hdop_centi_u16;
+    uint32_t hacc_mm_u32;
+    uint32_t vacc_mm_u32;
+    int32_t lat_e7_i32;
+    int32_t lon_e7_i32;
+    int32_t alt_mm_i32;
+    uint32_t packet_seq_u32;
+} nav_radio_node_quality_report_payload_t;
 
 nav_status_t nav_radio_decode_frame(const uint8_t *bytes, size_t len, nav_radio_frame_t *out);
 nav_status_t nav_radio_encode_frame(const nav_radio_frame_t *frame, uint8_t *out, size_t out_capacity, size_t *out_len);

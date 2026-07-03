@@ -76,6 +76,10 @@ const char *nav_radio_message_type_to_string(nav_radio_message_type_t type)
         return "STATS";
     case NAV_RADIO_MSG_LOG_TEXT:
         return "LOG_TEXT";
+    case NAV_RADIO_MSG_DEBUG_ENABLE:
+        return "DEBUG_ENABLE";
+    case NAV_RADIO_MSG_NODE_QUALITY_REPORT:
+        return "NODE_QUALITY_REPORT";
     default:
         return "UNKNOWN";
     }

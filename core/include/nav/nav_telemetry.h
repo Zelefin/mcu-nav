@@ -38,6 +38,33 @@ nav_status_t nav_telemetry_encode_range_result(
     size_t *out_len
 );
 
+/* Encodes a runtime-only DEBUG_ENABLE broadcast as a complete frame. */
+nav_status_t nav_telemetry_encode_debug_enable(
+    const nav_debug_enable_t *debug,
+    uint16_t frame_seq,
+    uint8_t *out,
+    size_t out_capacity,
+    size_t *out_len
+);
+
+/* Decodes a DEBUG_ENABLE payload from an already decoded radio frame. */
+nav_status_t nav_telemetry_decode_debug_enable(const nav_radio_frame_t *frame, nav_debug_enable_t *out);
+
+/* Encodes a compact diagnostics-only node quality report as a complete frame. */
+nav_status_t nav_telemetry_encode_node_quality_report(
+    const nav_node_quality_report_t *report,
+    uint16_t frame_seq,
+    uint8_t *out,
+    size_t out_capacity,
+    size_t *out_len
+);
+
+/* Decodes a diagnostics-only node quality report from an already decoded frame. */
+nav_status_t nav_telemetry_decode_node_quality_report(
+    const nav_radio_frame_t *frame,
+    nav_node_quality_report_t *out
+);
+
 /* Decodes one received radio frame into a nav_event_t. rssi_dbm/snr_db are the
  * local receive metadata stamped onto beacon events; now_ms timestamps the
  * event. Returns NAV_STATUS_NOT_IMPLEMENTED for a well-formed frame whose type

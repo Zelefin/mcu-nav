@@ -165,6 +165,31 @@ typedef struct {
 } nav_range_failure_t;
 
 typedef struct {
+    uint8_t origin_node_id;
+    uint16_t ttl_ms;
+} nav_debug_enable_t;
+
+typedef struct {
+    uint8_t node_id;
+    nav_mode_t nav_mode;
+    nav_solution_status_t solution_status;
+    nav_solution_source_t solution_source;
+    uint8_t num_anchors;
+    uint8_t anchor_ids[NAV_TRILAT_ANCHOR_COUNT];
+    nav_gnss_fix_type_t fix_type;
+    uint8_t satellites;
+    float geometry_score;
+    float total_quality;
+    uint32_t residual_rms_mm;
+    uint32_t max_residual_mm;
+    uint16_t hdop_centi;
+    uint32_t hacc_mm;
+    uint32_t vacc_mm;
+    nav_position_t position;
+    uint32_t packet_seq;
+} nav_node_quality_report_t;
+
+typedef struct {
     uint8_t node_id;
     int32_t lat_e7;
     int32_t lon_e7;
