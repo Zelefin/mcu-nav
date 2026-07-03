@@ -42,6 +42,14 @@ assembled locally from directly received peers, viewable by plugging into that
 one node. It is the multi-node face of the per-peer system view.
 _Avoid_: Mesh, dashboard, ground station
 
+**Network map**:
+The spatial rendering of the network view in the telemetry UI: positioned nodes
+plotted on an online geographic map from a single vantage node, with nodes that
+lack a usable position listed in an off-map roster. It reads only the peer
+snapshot, so a node appears once it has a usable GNSS coordinate or an accepted
+navigation solution.
+_Avoid_: Radar, minimap, ground station
+
 **Control channel**:
 The newline-delimited JSON link over a node's USB-serial port used to read its
 snapshot/telemetry and to apply local configuration. It is distinct from the
