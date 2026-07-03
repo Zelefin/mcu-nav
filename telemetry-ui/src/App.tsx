@@ -55,6 +55,11 @@ interface SerialLogEntry {
   bad?: boolean;
 }
 
+interface QualityObservation {
+  record: NodeQualityRecord;
+  receivedAt: number;
+}
+
 type ConnectionStatus = "disconnected" | "connecting" | "connected";
 
 export function App() {
@@ -66,6 +71,7 @@ export function App() {
   const [nodeNames, setNodeNames] = useState<Record<string, string>>(() => loadNodeNames());
   const [discovered, setDiscovered] = useState<Set<number>>(() => new Set());
   const [observations, setObservations] = useState<Map<string, Observation>>(() => new Map());
+  const [nodeQualities, setNodeQualities] = useState<Map<number, QualityObservation>>(() => new Map());
   const [serialLog, setSerialLog] = useState<SerialLogEntry[]>([]);
   const [firmwareBuild, setFirmwareBuild] = useState("");
   const [debugEnabled, setDebugEnabled] = useState(false);
@@ -262,6 +268,18 @@ export function App() {
     [recordObservation],
   );
 
+  const ingestNodeQuality = useCallback(
+    (record: NodeQualityRecord) => {
+      discoverNodes([record.node_id, ...(record.data.anchor_ids ?? [])]);
+      setNodeQualities((current) => {
+        const next = new Map(current);
+        next.set(record.node_id, { record, receivedAt: Date.now() });
+        return next;
+      });
+    },
+    [discoverNodes],
+  );
+
   const ingestRecord = useCallback(
     (record: CaptureDataRecord, rangeFromText?: RangeRecord) => {
       if (record.type === "snapshot") {
@@ -273,7 +291,7 @@ export function App() {
         return;
       }
       if (record.type === "node_quality") {
-        ingestNodeQuality(record, discoverNodes);
+        ingestNodeQuality(record);
         return;
       }
       if (record.type === "log") {
@@ -283,7 +301,7 @@ export function App() {
         if (rangeFromText) ingestRange(rangeFromText);
       }
     },
-    [addLog, discoverNodes, ingestRange, ingestSnapshot],
+    [addLog, ingestNodeQuality, ingestRange, ingestSnapshot],
   );
 
   const appendCaptureRecord = useCallback(
@@ -433,6 +451,11 @@ export function App() {
     }
     return Array.from(rows.values()).sort((a, b) => a.aId - b.aId || a.bId - b.bId);
   }, [discoveredIds, observations]);
+
+  const qualityRows = useMemo(
+    () => Array.from(nodeQualities.values()).sort((a, b) => a.record.node_id - b.record.node_id),
+    [nodeQualities],
+  );
 
   const saveCurrentName = () => {
     const clean = cleanName(nameDraft);
@@ -664,6 +687,80 @@ export function App() {
 
         <section className="main-column">
           <section className="panel">
+            <h2>Whole-System Quality</h2>
+            <table className="data-table quality-table">
+              <thead>
+                <tr>
+                  <th>Node</th>
+                  <th>Origin</th>
+                  <th>Mode</th>
+                  <th>Solution</th>
+                  <th>Source</th>
+                  <th>Residual</th>
+                  <th>Geom</th>
+                  <th>Total</th>
+                  <th>Anchors</th>
+                  <th>GNSS</th>
+                  <th>Age</th>
+                </tr>
+              </thead>
+              <tbody>
+                {qualityRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={11} className="empty-cell">
+                      No node quality records yet.
+                    </td>
+                  </tr>
+                ) : (
+                  qualityRows.map(({ record, receivedAt }) => {
+                    const freshnessMs = (record.age_ms ?? 0) + Math.max(0, now - receivedAt);
+                    const weak = isWeakQuality(record);
+                    const stale = freshnessMs > 5000;
+                    return (
+                      <tr
+                        key={record.node_id}
+                        className={[stale ? "stale-row" : "", weak ? "weak-row" : ""].filter(Boolean).join(" ")}
+                      >
+                        <td data-label="Node" className="text-cell">
+                          {labelFor(record.node_id)} #{record.node_id}
+                        </td>
+                        <td data-label="Origin">{record.origin}</td>
+                        <td data-label="Mode" className="mono">
+                          {record.data.nav_mode ?? DASH}
+                        </td>
+                        <td data-label="Solution" className={solutionClass(record)}>
+                          {record.data.solution_status ?? DASH}
+                        </td>
+                        <td data-label="Source" className="mono">
+                          {record.data.solution_source ?? DASH}
+                        </td>
+                        <td data-label="Residual" className="mono num">
+                          {formatMeters(record.data.residual_rms_m)}
+                        </td>
+                        <td data-label="Geom" className={`mono num ${scoreClass(record.data.geometry_score)}`}>
+                          {formatQuality(record.data.geometry_score)}
+                        </td>
+                        <td data-label="Total" className={`mono num ${scoreClass(record.data.total_quality)}`}>
+                          {formatQuality(record.data.total_quality)}
+                        </td>
+                        <td data-label="Anchors" className="mono">
+                          {formatAnchors(record)}
+                        </td>
+                        <td data-label="GNSS" className="mono">
+                          {formatGnss(record)}
+                        </td>
+                        <td data-label="Age" className={`mono num ${stale ? "warn" : ""}`}>
+                          {formatAge(freshnessMs)}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </section>
+
+          <section className="panel">
             <h2>Distance Observations</h2>
             <table className="data-table distance-table">
               <thead>
@@ -856,10 +953,6 @@ async function readLoop(
   }
 }
 
-function ingestNodeQuality(record: NodeQualityRecord, discoverNodes: (ids: Array<number | null | undefined>) => void) {
-  discoverNodes([record.node_id, ...(record.data.anchor_ids ?? [])]);
-}
-
 function loadNodeNames(): Record<string, string> {
   try {
     const parsed = JSON.parse(localStorage.getItem(NODE_NAMES_KEY) || "{}") as unknown;
@@ -907,6 +1000,10 @@ function formatMetersFromMm(mm: unknown): string {
   return hasNumber(mm) ? `${(mm / 1000).toFixed(2)} m` : DASH;
 }
 
+function formatMeters(meters: unknown): string {
+  return hasNumber(meters) ? `${meters.toFixed(2)} m` : DASH;
+}
+
 function formatSigned(value: unknown, digits = 0): string {
   return hasNumber(value) ? value.toFixed(digits) : DASH;
 }
@@ -935,4 +1032,46 @@ function stateClass(state: Observation["state"] | "stale"): string {
   if (state === "ok") return "ok";
   if (state === "stale" || state === "missing") return "warn";
   return "bad";
+}
+
+function isWeakQuality(record: NodeQualityRecord): boolean {
+  const data = record.data;
+  return (
+    (hasNumber(data.total_quality) && data.total_quality < 0.5) ||
+    (hasNumber(data.geometry_score) && data.geometry_score < 0.4) ||
+    (hasNumber(data.num_anchors) && data.num_anchors < 3) ||
+    data.solution_source === "NONE" ||
+    data.solution_status === "REJECTED"
+  );
+}
+
+function scoreClass(value: unknown): string {
+  if (!hasNumber(value)) return "";
+  if (value < 0.4) return "bad";
+  if (value < 0.7) return "warn";
+  return "ok";
+}
+
+function solutionClass(record: NodeQualityRecord): string {
+  if (record.data.solution_status === "REJECTED" || record.data.solution_source === "NONE") return "bad";
+  if (isWeakQuality(record)) return "warn";
+  return "ok";
+}
+
+function formatAnchors(record: NodeQualityRecord): string {
+  const count = record.data.num_anchors;
+  const ids = record.data.anchor_ids ?? [];
+  const suffix = ids.length ? ` [${ids.join(",")}]` : "";
+  return hasNumber(count) ? `${count}${suffix}` : DASH;
+}
+
+function formatGnss(record: NodeQualityRecord): string {
+  const parts = [
+    record.data.fix_type ?? "NONE",
+    hasNumber(record.data.satellites) ? `${record.data.satellites} sat` : "",
+    hasNumber(record.data.hdop_centi) ? `hdop ${(record.data.hdop_centi / 100).toFixed(2)}` : "",
+    hasNumber(record.data.hacc_mm) ? `h ${Math.round(record.data.hacc_mm / 1000)}m` : "",
+    hasNumber(record.data.vacc_mm) ? `v ${Math.round(record.data.vacc_mm / 1000)}m` : "",
+  ].filter(Boolean);
+  return parts.length ? parts.join(" ") : DASH;
 }

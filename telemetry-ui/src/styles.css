@@ -360,8 +360,26 @@ th {
   width: 14%;
 }
 
+.quality-table th:nth-child(1),
+.quality-table td:nth-child(1) {
+  width: 17%;
+}
+
+.quality-table th:nth-child(6),
+.quality-table td:nth-child(6),
+.quality-table th:nth-child(9),
+.quality-table td:nth-child(9),
+.quality-table th:nth-child(10),
+.quality-table td:nth-child(10) {
+  width: 10%;
+}
+
 .stale-row {
   opacity: 0.52;
+}
+
+.weak-row {
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
 }
 
 .ok {
