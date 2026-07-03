@@ -6,9 +6,9 @@
 // in EEPROM; it speaks the same newline-delimited JSON control protocol over
 // USB-serial as the ESP32 nodes, so the same control-app drives it.
 //
-// Radio integration (SX1280 in ports/speedybee/lib, reference firmware in
-// ports/speedybee/reference) is future work; today peers come from the mock
-// source so a lone board still produces a real solution.
+// The default firmware is radio-only: mock peers are compile-gated off so the
+// board participates as a real SX1280 node for distance and debug-telemetry
+// bring-up.
 #include <Arduino.h>
 #include <EEPROM.h>
 #include <math.h>
@@ -41,6 +41,12 @@ constexpr uint32_t kPacketRxWindowMs = 70;
 constexpr uint32_t kPacketTxTimeoutMs = 120;
 constexpr uint32_t kNodeQualityReportPeriodMs = 1000;
 constexpr uint32_t kRemoteDebugFallbackTtlMs = 3000;
+
+#ifndef NAV_SPEEDYBEE_ENABLE_MOCK_SOURCE
+#define NAV_SPEEDYBEE_ENABLE_MOCK_SOURCE 0
+#endif
+
+constexpr bool kMockSourceAvailable = NAV_SPEEDYBEE_ENABLE_MOCK_SOURCE != 0;
 
 struct PersistConfig {
   uint32_t magic;
@@ -86,7 +92,7 @@ void setDefaultConfig() {
   gConfig.nodeId = kDefaultNodeId;
   snprintf(gConfig.name, sizeof(gConfig.name), "speedybee-%u", gConfig.nodeId);
   gConfig.gpsEnabled = 0;  // no GPS hardware -> trilaterate
-  gConfig.mockEnabled = 1;
+  gConfig.mockEnabled = 0;
   gConfig.altitudeMm = kDefaultAltitudeMm;
 }
 
@@ -109,8 +115,11 @@ void loadConfig() {
     gConfig.gpsEnabled = 0;
     changed = true;
   }
-  if (gConfig.mockEnabled > 1) {
-    gConfig.mockEnabled = 1;
+  if (!kMockSourceAvailable && gConfig.mockEnabled != 0) {
+    gConfig.mockEnabled = 0;
+    changed = true;
+  } else if (gConfig.mockEnabled > 1) {
+    gConfig.mockEnabled = 0;
     changed = true;
   }
   if (gConfig.mockEnabled != 0 && gConfig.altitudeMm == 0) {
@@ -136,7 +145,7 @@ void seedMock() {
   for (const auto &peer : peers) {
     nav_mock_add_peer(&gMock, &peer);
   }
-  nav_mock_set_enabled(&gMock, gConfig.mockEnabled != 0);
+  nav_mock_set_enabled(&gMock, kMockSourceAvailable && gConfig.mockEnabled != 0);
 }
 
 void emitIntoCore(const nav_event_t *event, void *user) {
@@ -367,10 +376,16 @@ void applyCommand(const nav_ctrl_command_t &cmd) {
       emitLog(now, "INFO", "CONFIG", "GPS command ignored: SpeedyBee has no GPS hardware");
       break;
     case NAV_CTRL_CMD_SET_MOCK:
-      gConfig.mockEnabled = cmd.bool_value ? 1 : 0;
-      nav_mock_set_enabled(&gMock, gConfig.mockEnabled != 0);
-      changed = true;
-      emitLog(now, "INFO", "CONFIG", gConfig.mockEnabled != 0 ? "mock enabled" : "mock disabled");
+      if (kMockSourceAvailable) {
+        gConfig.mockEnabled = cmd.bool_value ? 1 : 0;
+        nav_mock_set_enabled(&gMock, gConfig.mockEnabled != 0);
+        changed = true;
+        emitLog(now, "INFO", "CONFIG", gConfig.mockEnabled != 0 ? "mock enabled" : "mock disabled");
+      } else {
+        gConfig.mockEnabled = 0;
+        nav_mock_set_enabled(&gMock, false);
+        emitLog(now, "INFO", "CONFIG", "mock command ignored: disabled in SpeedyBee build");
+      }
       break;
     case NAV_CTRL_CMD_SET_ALTITUDE:
       gConfig.altitudeMm = cmd.int_value;
@@ -452,7 +467,7 @@ void emitRecords(uint32_t now) {
   info.node_id = gConfig.nodeId;
   info.node_name = gConfig.name;
   info.gps_enabled = false;
-  info.mock_enabled = gConfig.mockEnabled != 0;
+  info.mock_enabled = kMockSourceAvailable && gConfig.mockEnabled != 0;
 
   static char buf[kRecordBufMax];
   int written = nav_serial_write_snapshot_record(buf, sizeof(buf), &info, &snapshot, &gNav.peer_table);

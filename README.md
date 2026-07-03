@@ -50,7 +50,9 @@ ESP-IDF is not available on the ESP8285, so the SpeedyBee target builds on the
 Arduino/ESP8266 framework but reuses the same portable `core/`; only the driver
 layer differs. The two ESP32 boards select pins through `build_flags`; SpeedyBee
 pins live in `ports/speedybee/include/board_pins.h`. The SpeedyBee board has no
-GPS, so it defaults to trilateration — ideal for debugging ranging.
+GPS, so the default firmware runs as a radio-only SX1280 node with mock peers
+disabled. This keeps it suitable as an additional real-world ranging/debug
+telemetry node.
 
 ### NodeMCU-32S Wiring
 
@@ -472,8 +474,11 @@ JSON (see `nav_serial_json`); Web Serial is desktop-only.
 ### Single-Node Development
 
 The node injects synthetic peers from the mock source when mock is enabled, so a
-single board produces a real trilateration solution without four nodes. Toggle it
-from the control app. The same flow runs fully on the host:
+single board produces a real trilateration solution without four nodes. The
+default SpeedyBee build disables that mock source and ignores mock commands; add
+`-D NAV_SPEEDYBEE_ENABLE_MOCK_SOURCE=1` only to an explicit debug firmware if you
+need single-board mock behavior on that target. The same flow runs fully on the
+host:
 
 ```bash
 cmake -S . -B build && cmake --build build
