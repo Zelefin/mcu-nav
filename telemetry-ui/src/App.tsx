@@ -1,5 +1,6 @@
 import {
   Cable,
+  Bug,
   FlaskConical,
   HardDrive,
   PlugZap,
@@ -63,6 +64,7 @@ export function App() {
   const [observations, setObservations] = useState<Map<string, Observation>>(() => new Map());
   const [serialLog, setSerialLog] = useState<SerialLogEntry[]>([]);
   const [firmwareBuild, setFirmwareBuild] = useState("");
+  const [debugEnabled, setDebugEnabled] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [nodeIdDraft, setNodeIdDraft] = useState("");
   const [altitudeDraft, setAltitudeDraft] = useState("");
@@ -308,6 +310,13 @@ export function App() {
   }, [addLog, connectionStatus, handleLine, sendCommand]);
 
   const disconnect = useCallback(async () => {
+    if (writerRef.current && debugEnabled) {
+      try {
+        await sendCommand({ cmd: "debug", on: false });
+      } catch {
+        // Continue disconnect even if the node is already gone.
+      }
+    }
     keepReadingRef.current = false;
     try {
       await readerRef.current?.cancel();
@@ -327,9 +336,10 @@ export function App() {
     readerRef.current = null;
     writerRef.current = null;
     portRef.current = null;
+    setDebugEnabled(false);
     setConnectionStatus("disconnected");
     addLog({ text: "[disconnected]" });
-  }, [addLog]);
+  }, [addLog, debugEnabled, sendCommand]);
 
   useEffect(() => {
     const beforeUnload = () => {
@@ -389,6 +399,15 @@ export function App() {
     if (Number.isFinite(altMm)) void sendCommand({ cmd: "alt", alt_mm: altMm });
   };
 
+  const toggleDebug = () => {
+    const next = !debugEnabled;
+    setDebugEnabled(next);
+    void sendCommand({ cmd: "debug", on: next }).catch((error) => {
+      setDebugEnabled(!next);
+      addLog({ text: `debug command failed: ${(error as Error).message}`, bad: true });
+    });
+  };
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -407,6 +426,10 @@ export function App() {
           <button onClick={disconnect} disabled={!connected}>
             <Unplug size={16} aria-hidden="true" />
             Disconnect
+          </button>
+          <button className={debugEnabled ? "toggle-active" : ""} onClick={toggleDebug} disabled={!connected}>
+            <Bug size={16} aria-hidden="true" />
+            Debug
           </button>
         </div>
       </header>

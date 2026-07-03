@@ -70,6 +70,12 @@ button.primary {
   font-weight: 650;
 }
 
+button.toggle-active {
+  border-color: color-mix(in srgb, var(--ok) 75%, var(--line));
+  background: color-mix(in srgb, var(--ok) 18%, var(--panel-soft));
+  color: var(--ok);
+}
+
 input {
   min-width: 0;
   min-height: 34px;
