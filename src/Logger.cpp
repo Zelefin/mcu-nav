@@ -71,6 +71,23 @@ void begin() {
   }
 }
 
+void writeLine(const char *line) {
+  if (line == nullptr) {
+    return;
+  }
+  if (gLoggerMutex != nullptr) {
+    xSemaphoreTake(gLoggerMutex, portMAX_DELAY);
+  }
+
+  fwrite(line, 1, strlen(line), stdout);
+  fwrite("\r\n", 1, 2, stdout);
+  fflush(stdout);
+
+  if (gLoggerMutex != nullptr) {
+    xSemaphoreGive(gLoggerMutex);
+  }
+}
+
 void rawf(const char *level, const char *tag, const char *format, va_list args) {
   if (!shouldPrintLevel(level)) {
     return;
@@ -78,10 +95,6 @@ void rawf(const char *level, const char *tag, const char *format, va_list args) 
 
   char message[224];
   vsnprintf(message, sizeof(message), format, args);
-
-  if (gLoggerMutex != nullptr) {
-    xSemaphoreTake(gLoggerMutex, portMAX_DELAY);
-  }
 
   const uint32_t elapsedMs = static_cast<uint32_t>(esp_timer_get_time() / 1000ULL) - gLoggerStartMs;
   char text[320];
@@ -110,14 +123,7 @@ void rawf(const char *level, const char *tag, const char *format, va_list args) 
                static_cast<unsigned long>(elapsedMs));
     }
 
-    const size_t lineLength = strlen(line);
-    fwrite(line, 1, lineLength, stdout);
-    fwrite("\r\n", 1, 2, stdout);
-    fflush(stdout);
-  }
-
-  if (gLoggerMutex != nullptr) {
-    xSemaphoreGive(gLoggerMutex);
+    writeLine(line);
   }
 }
 

@@ -122,7 +122,7 @@ void printRecord(const char *record) {
   if (record == nullptr || record[0] == '\0') {
     return;
   }
-  std::printf("%s\n", record);
+  Logger::writeLine(record);
 }
 
 // Default debug scene so a lone board has something to trilaterate against when
