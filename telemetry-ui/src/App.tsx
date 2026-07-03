@@ -151,6 +151,23 @@ export function App() {
     });
   }, []);
 
+  const resetTelemetryView = useCallback((options?: { clearLog?: boolean }) => {
+    setSnapshot(null);
+    setCurrentNodeId(null);
+    setLastGps(false);
+    setLastMock(false);
+    setDiscovered(new Set());
+    setObservations(new Map());
+    setNodeQualities(new Map());
+    setFirmwareBuild("");
+    setNameDraft("");
+    setNodeIdDraft("");
+    setAltitudeDraft("");
+    if (options?.clearLog) {
+      setSerialLog([]);
+    }
+  }, []);
+
   const rememberNodeName = useCallback(
     (id: number | null | undefined, name: unknown) => {
       if (!isNodeId(id)) return;
@@ -177,7 +194,7 @@ export function App() {
       note?: string;
       discover?: boolean;
     }) => {
-      if (!isNodeId(input.fromId) || !isNodeId(input.toId)) return;
+      if (!isNodeId(input.fromId) || !isNodeId(input.toId) || input.fromId === input.toId) return;
       if (input.discover !== false || input.state === "ok") {
         discoverNodes([input.fromId, input.toId]);
       }
@@ -223,7 +240,7 @@ export function App() {
       }
 
       for (const peer of nextSnapshot.peers ?? []) {
-        if (!isNodeId(peer.id)) continue;
+        if (!isNodeId(peer.id) || !isNodeId(nodeId) || peer.id === nodeId) continue;
         discoverNodes([peer.id]);
         if (peer.range_valid) {
           recordObservation({
@@ -274,7 +291,7 @@ export function App() {
 
   const ingestNodeQuality = useCallback(
     (record: NodeQualityRecord) => {
-      discoverNodes([record.node_id, ...(record.data.anchor_ids ?? [])]);
+      discoverNodes([record.node_id]);
       setNodeQualities((current) => {
         const next = new Map(current);
         next.set(record.node_id, { record, receivedAt: Date.now() });
@@ -344,6 +361,7 @@ export function App() {
 
   const ingestCaptureText = useCallback(
     (text: string, sourceName: string) => {
+      resetTelemetryView({ clearLog: true });
       let count = 0;
       let skipped = 0;
       for (const line of text.split(/\r?\n/)) {
@@ -375,7 +393,7 @@ export function App() {
         bad: skipped > 0,
       });
     },
-    [addLog, discoverNodes, ingestRecord, rememberNodeName],
+    [addLog, discoverNodes, ingestRecord, rememberNodeName, resetTelemetryView],
   );
 
   const openCapture = useCallback(async () => {
@@ -415,6 +433,8 @@ export function App() {
       portRef.current = port;
       writerRef.current = port.writable?.getWriter() ?? null;
       keepReadingRef.current = true;
+      resetTelemetryView({ clearLog: true });
+      setDebugEnabled(false);
       setConnectionStatus("connected");
       addLog({ text: `[connected @ ${BAUD_RATE} baud]` });
       void readLoop(port, keepReadingRef, readerRef, handleLine, addLog);
@@ -423,7 +443,7 @@ export function App() {
       setConnectionStatus("disconnected");
       addLog({ text: `connect failed: ${(error as Error).message}`, bad: true });
     }
-  }, [addLog, connectionStatus, handleLine, sendCommand]);
+  }, [addLog, connectionStatus, handleLine, resetTelemetryView, sendCommand]);
 
   const stopRecording = useCallback(async () => {
     const capture = captureRef.current;
@@ -606,11 +626,11 @@ export function App() {
             <Unplug size={16} aria-hidden="true" />
             Disconnect
           </button>
-          <button onClick={() => ingestCaptureText(sampleCapture, "sample_capture.ndjson")}>
+          <button onClick={() => ingestCaptureText(sampleCapture, "sample_capture.ndjson")} disabled={connected}>
             <Play size={15} aria-hidden="true" />
             Sample
           </button>
-          <button onClick={openCapture} disabled={!fileSystemAccessSupported}>
+          <button onClick={openCapture} disabled={connected || !fileSystemAccessSupported}>
             <Upload size={15} aria-hidden="true" />
             Open
           </button>
@@ -703,7 +723,7 @@ export function App() {
 
           <section className="panel">
             <h2>Node Names</h2>
-            <table className="compact-table">
+            <table className="compact-table" aria-label="Node names">
               <thead>
                 <tr>
                   <th>ID</th>
@@ -758,7 +778,7 @@ export function App() {
         <section className="main-column">
           <section className="panel">
             <h2>Whole-System Quality</h2>
-            <table className="data-table quality-table">
+            <table className="data-table quality-table" aria-label="Whole-system quality">
               <thead>
                 <tr>
                   <th>Node</th>
@@ -832,7 +852,7 @@ export function App() {
 
           <section className="panel">
             <h2>Distance Observations</h2>
-            <table className="data-table distance-table">
+            <table className="data-table distance-table" aria-label="Distance observations">
               <thead>
                 <tr>
                   <th>Pair</th>
@@ -888,7 +908,7 @@ export function App() {
 
           <section className="panel">
             <h2>Peer Snapshot</h2>
-            <table className="data-table peer-table">
+            <table className="data-table peer-table" aria-label="Peer snapshot">
               <thead>
                 <tr>
                   <th>Node</th>
