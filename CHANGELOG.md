@@ -37,6 +37,9 @@ work.
   `NODE_QUALITY_REPORT` diagnostics over the best-effort radio path.
 - Added typed NDJSON control-channel records for `snapshot`, `node_quality`,
   `range`, and `log`, plus a RAM-only `debug` serial command.
+- Added a SpeedyBee SX1280 packet bridge that can hear `DEBUG_ENABLE` over the
+  air and broadcast `NODE_QUALITY_REPORT` diagnostics while debug telemetry is
+  active.
 - Added an issue-shaped Phase 2 backlog under `docs/issues/` with acceptance
   criteria for the Working PoC, endpoint-bearing ranges, pair-range network
   view, GNSS adapter, ESP32 TDMA/ranging paths, radio navigation acceptance,

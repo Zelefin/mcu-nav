@@ -14,12 +14,17 @@
 #include <math.h>
 #include <string.h>
 
+#include "SX1280.h"
+#include "board_pins.h"
+
 extern "C" {
 #include "nav/nav_core.h"
 #include "nav/nav_mock.h"
 #include "nav/nav_quality.h"
+#include "nav/nav_radio_protocol.h"
 #include "nav/nav_serial_json.h"
 #include "nav/nav_state_machine.h"
+#include "nav/nav_telemetry.h"
 }
 
 namespace {
@@ -30,6 +35,12 @@ constexpr size_t kRecordBufMax = 1536;
 constexpr uint8_t kDefaultNodeId = 0;
 constexpr int32_t kDefaultAltitudeMm = 183500;
 constexpr uint32_t kConfigMagic = 0x5342324eUL;  // "SB2N"
+constexpr uint32_t kRadioFrequencyHz = 2445000000UL;
+constexpr uint32_t kPacketRxPeriodMs = 120;
+constexpr uint32_t kPacketRxWindowMs = 70;
+constexpr uint32_t kPacketTxTimeoutMs = 120;
+constexpr uint32_t kNodeQualityReportPeriodMs = 1000;
+constexpr uint32_t kRemoteDebugFallbackTtlMs = 3000;
 
 struct PersistConfig {
   uint32_t magic;
@@ -43,11 +54,27 @@ struct PersistConfig {
 PersistConfig gConfig;
 nav_system_t gNav;
 nav_mock_t gMock;
+SX1280 gRadio(PIN_RADIO_NSS, PIN_RADIO_RST, PIN_RADIO_BUSY);
 char gLine[256];
 size_t gLineLen = 0;
 uint32_t gLastSnapshotMs = 0;
 bool gDebugEnabled = false;
 uint32_t gLocalQualityPacketSeq = 0;
+bool gRadioReady = false;
+uint16_t gRadioFrameSeq = 0;
+uint32_t gRemoteDebugActiveUntilMs = 0;
+bool gRemoteDebugWasActive = false;
+uint32_t gLastPacketRxMs = 0;
+uint32_t gLastNodeQualityTxMs = 0;
+uint32_t gRadioQualityPacketSeq = 0;
+uint32_t gLastRadioNotReadyLogMs = 0;
+uint32_t gLastNodeQualityTxLogMs = 0;
+
+enum PaMode {
+  PA_OFF,
+  PA_RX,
+  PA_TX,
+};
 
 void saveConfig() {
   EEPROM.put(0, gConfig);
@@ -116,6 +143,23 @@ void emitIntoCore(const nav_event_t *event, void *user) {
   nav_core_handle_event(static_cast<nav_system_t *>(user), event);
 }
 
+void setPaMode(PaMode mode) {
+  switch (mode) {
+    case PA_RX:
+      digitalWrite(PIN_PA_RXEN, HIGH);
+      digitalWrite(PIN_PA_TXEN, LOW);
+      break;
+    case PA_TX:
+      digitalWrite(PIN_PA_RXEN, LOW);
+      digitalWrite(PIN_PA_TXEN, HIGH);
+      break;
+    default:
+      digitalWrite(PIN_PA_RXEN, LOW);
+      digitalWrite(PIN_PA_TXEN, LOW);
+      break;
+  }
+}
+
 void initCoreForConfig() {
   nav_config_t cfg = nav_config_default(gConfig.nodeId);
   cfg.min_anchor_triangle_area_m2 = 10.0f;
@@ -170,6 +214,143 @@ void fillLocalNodeQualityReport(uint32_t packetSeq,
   out->packet_seq = packetSeq;
 }
 
+bool timeReached(uint32_t now, uint32_t deadline) {
+  return static_cast<int32_t>(now - deadline) >= 0;
+}
+
+bool remoteDebugActive(uint32_t now) {
+  return gRemoteDebugActiveUntilMs != 0 && !timeReached(now, gRemoteDebugActiveUntilMs);
+}
+
+bool periodDue(uint32_t now, uint32_t lastMs, uint32_t periodMs) {
+  return lastMs == 0 || (now - lastMs) >= periodMs;
+}
+
+bool getCurrentLocalQuality(uint32_t packetSeq, nav_node_quality_report_t *out) {
+  nav_snapshot_t snapshot;
+  if (out == nullptr || !nav_core_get_snapshot(&gNav, &snapshot)) {
+    return false;
+  }
+  fillLocalNodeQualityReport(packetSeq, snapshot, out);
+  return true;
+}
+
+void initRadio() {
+  pinMode(PIN_PA_RXEN, OUTPUT);
+  pinMode(PIN_PA_TXEN, OUTPUT);
+  pinMode(PIN_RADIO_DIO1, INPUT);
+  setPaMode(PA_OFF);
+
+  emitLog(millis(), "INFO", "RADIO", "initializing SpeedyBee SX1280 packet bridge");
+  gRadioReady = gRadio.beginLoRa(kRadioFrequencyHz);
+  if (gRadioReady) {
+    emitLog(millis(), "OK", "RADIO", "SpeedyBee SX1280 packet bridge initialized");
+  } else {
+    emitLog(millis(), "ERROR", "RADIO", "SpeedyBee SX1280 packet bridge init failed");
+  }
+}
+
+void handleDebugEnableFrame(const nav_radio_frame_t &frame, uint32_t now) {
+  nav_debug_enable_t debug;
+  if (nav_telemetry_decode_debug_enable(&frame, &debug) != NAV_STATUS_OK) {
+    emitLog(now, "WARN", "RADIO", "debug_enable decode failed");
+    return;
+  }
+  const bool wasActive = remoteDebugActive(now);
+  const uint32_t ttlMs = debug.ttl_ms == 0 ? kRemoteDebugFallbackTtlMs : debug.ttl_ms;
+  gRemoteDebugActiveUntilMs = now + ttlMs;
+  gLastNodeQualityTxMs = 0;
+  gRemoteDebugWasActive = true;
+  if (!wasActive) {
+    emitLog(now, "INFO", "RADIO", "debug telemetry enabled by OTA");
+  }
+}
+
+void handleRadioFrame(const uint8_t *payload, uint8_t len, uint32_t now) {
+  nav_radio_frame_t frame;
+  if (nav_radio_decode_frame(payload, len, &frame) != NAV_STATUS_OK) {
+    return;
+  }
+  switch (frame.type) {
+    case NAV_RADIO_MSG_DEBUG_ENABLE:
+      handleDebugEnableFrame(frame, now);
+      break;
+    default:
+      break;
+  }
+}
+
+void servicePacketRx(uint32_t now) {
+  if (!gRadioReady || !periodDue(now, gLastPacketRxMs, kPacketRxPeriodMs)) {
+    return;
+  }
+  gLastPacketRxMs = now;
+
+  uint8_t payload[NAV_RADIO_MAX_FRAME_BYTES + 6u];
+  uint8_t len = 0;
+  SX1280::PacketStatus status;
+  setPaMode(PA_RX);
+  const bool ok = gRadio.receivePacket(payload, sizeof(payload), &len, kPacketRxWindowMs, &status);
+  setPaMode(PA_OFF);
+  if (ok && len > 0) {
+    handleRadioFrame(payload, len, millis());
+  }
+}
+
+void transmitNodeQuality(uint32_t now) {
+  if (!gRadioReady || !periodDue(now, gLastNodeQualityTxMs, kNodeQualityReportPeriodMs)) {
+    return;
+  }
+
+  nav_node_quality_report_t report;
+  if (!getCurrentLocalQuality(++gRadioQualityPacketSeq, &report)) {
+    return;
+  }
+
+  uint8_t frame[NAV_RADIO_MAX_FRAME_BYTES + 6u];
+  size_t frameLen = 0;
+  if (nav_telemetry_encode_node_quality_report(
+          &report, ++gRadioFrameSeq, frame, sizeof(frame), &frameLen) != NAV_STATUS_OK ||
+      frameLen == 0 || frameLen > 255u) {
+    emitLog(now, "WARN", "RADIO", "node_quality encode failed");
+    return;
+  }
+
+  gLastNodeQualityTxMs = now;
+  setPaMode(PA_TX);
+  delayMicroseconds(3000);
+  const bool ok = gRadio.transmitPacket(frame, static_cast<uint8_t>(frameLen), kPacketTxTimeoutMs);
+  setPaMode(PA_OFF);
+  if (!ok) {
+    emitLog(now, "WARN", "RADIO", "node_quality tx failed");
+  } else if (periodDue(now, gLastNodeQualityTxLogMs, 5000)) {
+    gLastNodeQualityTxLogMs = now;
+    emitLog(now, "DEBUG", "RADIO", "node_quality tx ok");
+  }
+}
+
+void serviceDebugTelemetryRadio(uint32_t now) {
+  if (!gRadioReady) {
+    if ((gDebugEnabled || remoteDebugActive(now)) && periodDue(now, gLastRadioNotReadyLogMs, 5000)) {
+      gLastRadioNotReadyLogMs = now;
+      emitLog(now, "WARN", "RADIO", "debug telemetry radio bridge not ready");
+    }
+    return;
+  }
+
+  servicePacketRx(now);
+
+  const bool remoteActive = remoteDebugActive(now);
+  if (!remoteActive && gRemoteDebugWasActive) {
+    gRemoteDebugWasActive = false;
+    emitLog(now, "INFO", "RADIO", "debug telemetry disabled by OTA timeout");
+  }
+
+  if (gDebugEnabled || remoteActive) {
+    transmitNodeQuality(now);
+  }
+}
+
 void applyCommand(const nav_ctrl_command_t &cmd) {
   bool changed = false;
   const uint32_t now = millis();
@@ -207,7 +388,15 @@ void applyCommand(const nav_ctrl_command_t &cmd) {
       break;
     case NAV_CTRL_CMD_SET_DEBUG:
       gDebugEnabled = cmd.bool_value;
-      emitLog(now, "INFO", "CONFIG", gDebugEnabled ? "debug telemetry enabled" : "debug telemetry disabled");
+      if (gDebugEnabled) {
+        emitLog(now,
+                "INFO",
+                "CONFIG",
+                gRadioReady ? "debug telemetry enabled; radio bridge ready"
+                            : "debug telemetry enabled; radio bridge not ready");
+      } else {
+        emitLog(now, "INFO", "CONFIG", "debug telemetry disabled");
+      }
       break;
     default:
       break;
@@ -285,6 +474,7 @@ void setup() {
   loadConfig();
   initCoreForConfig();
   emitLog(millis(), "INFO", "SYSTEM", "SpeedyBee firmware started");
+  initRadio();
 }
 
 void loop() {
@@ -294,4 +484,5 @@ void loop() {
     gLastSnapshotMs = now;
     emitRecords(now);
   }
+  serviceDebugTelemetryRadio(millis());
 }
