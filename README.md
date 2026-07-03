@@ -51,8 +51,8 @@ Arduino/ESP8266 framework but reuses the same portable `core/`; only the driver
 layer differs. The two ESP32 boards select pins through `build_flags`; SpeedyBee
 pins live in `ports/speedybee/include/board_pins.h`. The SpeedyBee board has no
 GPS, so the default firmware runs as a radio-only SX1280 node with mock peers
-disabled. This keeps it suitable as an additional real-world ranging/debug
-telemetry node.
+disabled. It participates in the same distance-only SX1280 RTToF ranging cycle
+as the ESP32 nodes and can also exchange debug telemetry packets.
 
 ### NodeMCU-32S Wiring
 
@@ -201,8 +201,9 @@ t=...ms [INFO] [SYSTEM] Health summary: RADIO=OK GPS=DISABLED COMPASS=DISABLED |
 
 ### Distance-Only Ranging Procedure
 
-For a full distance-only check, flash this firmware to the four ESP32 boards
-with E28/SX128x modules wired.
+For a full distance-only check, flash this firmware to the available SX1280 nav
+nodes: ESP32 boards with E28/SX128x modules and/or SpeedyBee Nano 2.4G modules
+with SX1280 hardware.
 
 1. Connect to each board with the control app.
 2. Set unique node IDs: one board to `0`, the other boards to `1`, `2`, and
