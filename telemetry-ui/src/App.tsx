@@ -31,7 +31,6 @@ import {
 import sampleCapture from "../fixtures/sample_capture.ndjson?raw";
 
 const BAUD_RATE = 115200;
-const NODE_NAMES_KEY = "nav-mcu.nodeNames.v1";
 const DASH = "-";
 const SHOW_MOCK_CONTROLS = import.meta.env.VITE_NAV_MCU_DEBUG_UI === "true";
 
@@ -71,9 +70,9 @@ export function App() {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
   const [snapshot, setSnapshot] = useState<SnapshotPayload | null>(null);
   const [currentNodeId, setCurrentNodeId] = useState<number | null>(null);
+  const [currentNodeName, setCurrentNodeName] = useState("");
   const [lastGps, setLastGps] = useState(false);
   const [lastMock, setLastMock] = useState(false);
-  const [nodeNames, setNodeNames] = useState<Record<string, string>>(() => loadNodeNames());
   const [discovered, setDiscovered] = useState<Set<number>>(() => new Set());
   const [observations, setObservations] = useState<Map<string, Observation>>(() => new Map());
   const [nodeQualities, setNodeQualities] = useState<Map<number, QualityObservation>>(() => new Map());
@@ -109,13 +108,9 @@ export function App() {
     return () => window.clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    saveNodeNames(nodeNames);
-  }, [nodeNames]);
-
   const labelFor = useCallback(
-    (id: number) => nodeNames[String(id)] || `node-${id}`,
-    [nodeNames],
+    (id: number) => (id === currentNodeId && currentNodeName ? currentNodeName : `node-${id}`),
+    [currentNodeId, currentNodeName],
   );
 
   const discoveredIds = useMemo(
@@ -164,6 +159,7 @@ export function App() {
   const resetTelemetryView = useCallback((options?: { clearLog?: boolean }) => {
     setSnapshot(null);
     setCurrentNodeId(null);
+    setCurrentNodeName("");
     setLastGps(false);
     setLastMock(false);
     setDiscovered(new Set());
@@ -177,17 +173,6 @@ export function App() {
       setSerialLog([]);
     }
   }, []);
-
-  const rememberNodeName = useCallback(
-    (id: number | null | undefined, name: unknown) => {
-      if (!isNodeId(id)) return;
-      const clean = cleanName(name);
-      if (!clean) return;
-      discoverNodes([id]);
-      setNodeNames((current) => (current[String(id)] === clean ? current : { ...current, [id]: clean }));
-    },
-    [discoverNodes],
-  );
 
   const recordObservation = useCallback(
     (input: {
@@ -242,7 +227,7 @@ export function App() {
         discoverNodes([nodeId]);
         setNodeIdDraft(String(nodeId));
       }
-      rememberNodeName(isNodeId(nodeId) ? nodeId : null, nextSnapshot.node?.name);
+      setCurrentNodeName(cleanName(nextSnapshot.node?.name));
       setLastGps(!!nextSnapshot.node?.gps);
       setLastMock(!!nextSnapshot.node?.mock);
       if (document.activeElement?.id !== "nameInput") {
@@ -274,7 +259,7 @@ export function App() {
         }
       }
     },
-    [discoverNodes, observations, recordObservation, rememberNodeName],
+    [discoverNodes, observations, recordObservation],
   );
 
   const ingestRange = useCallback(
@@ -387,8 +372,8 @@ export function App() {
             if (isNodeId(record.node_id)) {
               setCurrentNodeId(record.node_id);
               setNodeIdDraft(String(record.node_id));
+              setCurrentNodeName(cleanName(record.node_name));
               discoverNodes([record.node_id]);
-              rememberNodeName(record.node_id, record.node_name);
             }
           } else {
             ingestRecord(record);
@@ -403,7 +388,7 @@ export function App() {
         bad: skipped > 0,
       });
     },
-    [addLog, discoverNodes, ingestRecord, rememberNodeName, resetTelemetryView],
+    [addLog, discoverNodes, ingestRecord, resetTelemetryView],
   );
 
   const openCapture = useCallback(async () => {
@@ -511,11 +496,6 @@ export function App() {
     return () => window.removeEventListener("beforeunload", beforeUnload);
   }, [disconnect]);
 
-  const nodeRows = useMemo(
-    () => discoveredIds.map((id) => ({ id, name: nodeNames[String(id)] || `node-${id}` })),
-    [discoveredIds, nodeNames],
-  );
-
   const qualityRows = useMemo(
     () => Array.from(nodeQualities.values()).sort((a, b) => a.record.node_id - b.record.node_id),
     [nodeQualities],
@@ -524,7 +504,6 @@ export function App() {
   const saveCurrentName = () => {
     const clean = cleanName(nameDraft);
     if (!clean) return;
-    if (isNodeId(currentNodeId)) rememberNodeName(currentNodeId, clean);
     void sendCommand({ cmd: "name", value: clean });
   };
 
@@ -566,7 +545,7 @@ export function App() {
         tsMs,
         firmwareBuild,
         nodeId: currentNodeId,
-        nodeName: snapshot?.node?.name ?? nodeNames[String(currentNodeId)] ?? "",
+        nodeName: currentNodeName,
         debug: debugEnabled,
       });
       await writable.write(`${JSON.stringify(meta)}\n`);
@@ -642,7 +621,7 @@ export function App() {
         <aside className="side-column">
           <section className="panel">
             <h2>This Node</h2>
-            <KeyValue label="Name" value={snapshot?.node?.name || "(unnamed)"} />
+            <KeyValue label="Name" value={currentNodeName || "(unnamed)"} />
             <KeyValue label="Node ID" value={snapshot?.node?.id ?? DASH} />
             <KeyValue label="Mode" value={snapshot?.mode ?? DASH} />
             <KeyValue label="Solution" value={snapshot?.sol ?? DASH} />
@@ -705,58 +684,6 @@ export function App() {
             </div>
           </section>
 
-          <section className="panel">
-            <h2>Node Names</h2>
-            <table className="compact-table" aria-label="Node names">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Name</th>
-                  <th>NVS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {nodeRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={3} className="empty-cell">
-                      No discovered nodes.
-                    </td>
-                  </tr>
-                ) : (
-                  nodeRows.map((row) => (
-                    <tr key={row.id}>
-                      <td className="mono">#{row.id}</td>
-                      <td>
-                        <input
-                          value={row.name}
-                          maxLength={23}
-                          onChange={(event) =>
-                            setNodeNames((current) => ({ ...current, [row.id]: cleanName(event.target.value) }))
-                          }
-                        />
-                      </td>
-                      <td>
-                        {row.id === currentNodeId ? (
-                          <button
-                            className="small-button"
-                            onClick={() => {
-                              const name = cleanName(nodeNames[String(row.id)]);
-                              if (name) void sendCommand({ cmd: "name", value: name });
-                            }}
-                            disabled={!connected}
-                          >
-                            Save
-                          </button>
-                        ) : (
-                          <span className="muted">connect</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </section>
         </aside>
 
         <section className="main-column">
@@ -968,23 +895,6 @@ async function readLoop(
       reader.releaseLock();
       if (readerRef.current === reader) readerRef.current = null;
     }
-  }
-}
-
-function loadNodeNames(): Record<string, string> {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(NODE_NAMES_KEY) || "{}") as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, string>) : {};
-  } catch {
-    return {};
-  }
-}
-
-function saveNodeNames(names: Record<string, string>) {
-  try {
-    localStorage.setItem(NODE_NAMES_KEY, JSON.stringify(names));
-  } catch {
-    // Ignore private-mode storage failures.
   }
 }
 

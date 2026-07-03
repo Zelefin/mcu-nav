@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const twoNodeCaptureWithExtraAnchors = [
   {
@@ -70,10 +70,6 @@ vi.mock("../fixtures/sample_capture.ndjson?raw", () => ({
 }));
 
 describe("App network view", () => {
-  beforeEach(() => {
-    localStorage.clear();
-  });
-
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
@@ -91,6 +87,7 @@ describe("App network view", () => {
       expect(screen.queryByRole("table", { name: /distance observations/i })).toBeNull();
       expect(screen.queryByRole("button", { name: /mock/i })).toBeNull();
       expect(screen.queryByText(/mock peers/i)).toBeNull();
+      expect(screen.queryByText(/node names/i)).toBeNull();
       expect(within(peerTable).queryByText(/node-0/)).toBeNull();
       expect(within(peerTable).queryByText(/node-3/)).toBeNull();
       const rows = within(peerTable).getAllByRole("row");

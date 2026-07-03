@@ -293,27 +293,12 @@ th {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
-.muted,
 .empty-cell {
   color: var(--muted);
 }
 
 .empty-cell {
   text-align: left;
-}
-
-.compact-table th,
-.compact-table td {
-  padding: 5px 6px;
-}
-
-.compact-table input {
-  width: 100%;
-}
-
-.small-button {
-  min-height: 28px;
-  padding: 3px 8px;
 }
 
 .data-table {
