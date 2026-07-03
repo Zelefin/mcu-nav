@@ -7,6 +7,8 @@ test("offline demo fixture renders GNSS and no-GPS markers", async ({ page }, te
   const map = page.locator("#map");
   await expect(map).toBeVisible();
   await expect(page.locator(".node-marker")).toHaveCount(4);
+  await expect(page.locator("#fieldChecklist tr")).toHaveCount(4);
+  await expect.poll(() => page.locator("#map").evaluate((el) => Number(el.dataset.rangeLines || "0"))).toBeGreaterThanOrEqual(3);
 
   await expect(page.locator('.node-marker.gnss .node-label', { hasText: "node-0" })).toBeVisible();
   await expect(page.locator('.node-marker.gnss .node-label', { hasText: "node-2" })).toBeVisible();
@@ -33,6 +35,42 @@ test("offline demo fixture renders GNSS and no-GPS markers", async ({ page }, te
     path: path.join(testInfo.outputDir, "control-app-map-demo.png"),
     fullPage: true,
   });
+});
+
+test("records typed and text telemetry to downloadable NDJSON", async ({ page }) => {
+  await page.goto("/index.html?demo=1");
+
+  await page.locator("#recordToggle").click();
+  await expect(page.locator("#recordToggle")).toHaveText("Stop (0)");
+
+  await page.evaluate(() => {
+    handleLine(JSON.stringify({
+      type: "range",
+      ts: 2000,
+      from_id: 1,
+      to_id: 2,
+      request_id: 7,
+      ok: true,
+      range_mm: 5100,
+      rssi_dbm: -61,
+      snr_db: 8,
+      source: "log",
+    }));
+    handleLine("t=2010ms [INFO] [RANGE] range_result ok=true from=1 to=3 request_id=8 range_mm=4300 rssi_dbm=-63 snr_db=7");
+  });
+
+  await expect(page.locator("#recordToggle")).toHaveText("Stop (3)");
+  const downloadPromise = page.waitForEvent("download");
+  await page.locator("#recordToggle").click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^nav-mcu-node-1-.*\.ndjson$/);
+  const stream = await download.createReadStream();
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  const text = Buffer.concat(chunks).toString("utf8");
+  const lines = text.trim().split("\n").map((line) => JSON.parse(line));
+  expect(lines.map((line) => line.type)).toEqual(["meta", "range", "log", "range"]);
+  expect(lines[3]).toMatchObject({ type: "range", from_id: 1, to_id: 3, ok: true, range_mm: 4300 });
 });
 
 async function expectMarkersInsideMap(page) {

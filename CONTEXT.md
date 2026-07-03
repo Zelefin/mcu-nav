@@ -20,6 +20,17 @@ A peer whose GNSS-valid position and fresh range can be used as an input to a
 radio navigation solve.
 _Avoid_: Repeater, relay
 
+**Field evidence window**:
+A bounded field-test retention window during which the last peer telemetry and
+range evidence may remain visible and eligible for the local radio solve after
+new packets temporarily stop arriving.
+_Avoid_: Permanent cache, replay history
+
+**Field evidence state**:
+The operator-facing freshness label for retained field evidence: fresh,
+stale, expired, or missing.
+_Avoid_: Packet status, solver state
+
 **Mappable node position**:
 A node position suitable for operator display, whether it came from local GNSS
 or from an accepted radio navigation solution.

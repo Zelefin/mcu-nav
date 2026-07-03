@@ -92,8 +92,9 @@ The v1 radio solver remains unchanged and still receives a local altitude input;
 the field workflow simply does not treat height as a visualization concern.
 Map labels and overlays hide altitude for this scenario. Tables, debug details,
 serial JSON, logs, and replay outputs continue to carry altitude.
-The first control-app map view shows node markers only; range links, anchor
-triangles, and geometry overlays remain out of scope for this branch.
+The control-app map shows node markers plus local-to-peer range links labeled
+with distance and age. Peer-to-peer ranges remain in tables and NDJSON captures;
+anchor triangles and geometry overlays remain out of scope.
 The map initially fits or follows the visible node markers. User pan or zoom
 pauses automatic camera movement until the operator presses a recenter control.
 In the control app layout, the map is the primary live field surface above the
@@ -103,7 +104,9 @@ The map's `this`/`me` marker is the connected navigation node from the serial
 snapshot, not the browser or laptop geolocation.
 Recently stale node positions remain visible briefly as faded markers with age
 available in details, then leave the live map while remaining diagnosable in
-tables/logs.
+tables/logs. For the four-node field workflow, the app uses fresh/stale/expired
+field evidence states: fresh under 5 seconds, stale from 5 to 30 seconds, and
+expired after 30 seconds.
 The control app keeps one USB-serial connection; other nodes appear through the
 connected node's radio-derived network view, not through multiple serial ports.
 Control-app map behavior should be testable from a deterministic four-node demo
@@ -112,6 +115,11 @@ This visualization branch prepares the control-app and serial/control contract
 for real GNSS data but does not implement the ESP32 GNSS UART adapter.
 Peer map labels use node IDs and the control app's local name cache/defaults;
 over-the-air node-name synchronization is out of scope.
+The control app can ingest the typed control-channel NDJSON envelopes directly:
+`snapshot` records update the main node/peer view, `range` records update
+distance tables and local range links, `node_quality` records fill debug/checklist
+state and missing map positions when they carry a valid mappable position, and
+plain firmware text logs are retained as `log` records.
 
 ## Pair Range Observations
 

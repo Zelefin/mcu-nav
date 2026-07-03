@@ -20,7 +20,7 @@ but it cannot prove a real three-anchor radio solve.
 - At least three anchor nodes with valid GNSS fixes and usable sky view.
 - SX1280 radios and antennas attached on all nodes.
 - One local node selected as the GPS-denied node under test.
-- A telemetry UI or serial monitor connected to the local node.
+- The control app or a serial monitor connected to the local node.
 
 ## Firmware Setup
 
@@ -47,14 +47,15 @@ pio run -e speedybee
 {"cmd":"gps","enabled":true}
 ```
 
-4. Set a fresh local altitude on the GPS-denied local node if local GNSS
-   altitude is not allowed in forced-denied mode:
+4. For the same-height field test, leave the default local altitude at `0 mm`.
+   Only set altitude manually when intentionally testing non-default altitude:
 
 ```json
 {"cmd":"alt","alt_mm":183500}
 ```
 
-5. Disable GPS use on the local node under test:
+5. Start a control-app NDJSON recording, then disable GPS use on the local node
+   under test:
 
 ```json
 {"cmd":"gps","enabled":false}
@@ -73,9 +74,12 @@ On the local node, capture:
 
 - `snapshot` records where `data.solution_source` is not `LOCAL_GNSS` after
   GPS is disabled.
-- At least three fresh peer rows with valid GNSS coordinates.
-- At least three fresh local-endpoint `range` records from SX1280 ranging.
-- A fresh local altitude source.
+- At least three peer rows with valid GNSS coordinates inside the 30 second
+  field evidence window.
+- At least three local-endpoint `range` records from SX1280 ranging inside the
+  30 second field evidence window.
+- A local altitude source. For the same-height field scenario this may be the
+  default `0 mm` value.
 - Structured quality diagnostics with `num_anchors >= 3`.
 - The accepted solution:
 
@@ -92,7 +96,8 @@ Also capture the residual and geometry diagnostics:
 
 ## Expected Result
 
-With three GNSS-valid anchors, three fresh local ranges, and fresh local altitude,
+With three GNSS-valid anchors, three local ranges inside the field evidence
+window, and local altitude,
 the GPS-disabled local node should report:
 
 - `solution_status` equal to `RADIO_3D`

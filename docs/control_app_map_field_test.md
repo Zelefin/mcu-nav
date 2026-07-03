@@ -23,6 +23,10 @@ UART adapter.
 - Connect the control app to one node over USB serial.
 - Keep only one serial connection open; the other nodes must appear through the
   connected node's radio-derived network view.
+- Start an NDJSON recording before moving nodes apart. Stop it after the test
+  segment; the browser downloads a `nav-mcu-node-*.ndjson` capture.
+- Enable debug telemetry only during bring-up or diagnosis, then turn it off
+  when checking final ranging/trilateration behavior.
 - Place three GPS-enabled nodes around the test area as anchors.
 - Place the GPS-disabled node near the middle of the triangle.
 - Keep modules at the same height for the field scenario. The map ignores
@@ -39,9 +43,14 @@ UART adapter.
 - Rejected or no-solution nodes do not appear as live markers.
 - Accepted degraded radio positions may appear, but with degraded styling.
 - Recently stale positions remain briefly as faded markers with age available
-  in details.
-- The first map view shows node dots only. Range links, anchor triangles, and
-  geometry overlays are out of scope for this branch.
+  in details. Field evidence is fresh under 5 seconds, stale from 5 to 30
+  seconds, and expired after 30 seconds.
+- The map shows local-to-peer range links with distance and age. Peer-to-peer
+  ranges remain visible in the distance table and NDJSON capture.
+- The Field checklist keeps fixed rows for nodes 0 through 3 and highlights
+  node ID presence, GNSS availability, local range readiness, anchor readiness,
+  and current solution/source state.
+- Anchor triangles and geometry overlays are out of scope.
 
 ## Pass Criteria
 
@@ -50,10 +59,15 @@ UART adapter.
   accepted `RADIO_3D` estimate.
 - The GPS-disabled node marker is visually distinct from GNSS markers by color
   and label.
+- Local-to-peer range links are visible for usable ranges and show their age.
+- The Field checklist shows three non-local anchors as ready or stale-ok before
+  the GPS-disabled node is expected to solve.
 - The map auto-fits or follows visible nodes until the operator pans or zooms,
   then resumes only after recentering.
 - Peer tables, serial logs, and debug details still expose altitude and
   diagnostic fields.
+- The Record button downloads an NDJSON capture containing `meta`, `snapshot`,
+  `range`, `node_quality`, and `log` records as they arrive.
 - The app remains useful without internet access when `kyiv-oblast.pmtiles` and
   vendored assets are present.
 - The implementation workflow downloads or builds the Kyiv offline PMTiles
@@ -73,7 +87,7 @@ four-node snapshot or fixture:
 - one middle node with `position_source = RADIO_3D`,
   `position_valid = true`, and no usable GNSS
 - no browser geolocation
-- no range-link or triangle overlays
+- local-to-peer range links from the middle node to the three anchors
 
 ## Automated Offline Smoke Test
 
@@ -86,5 +100,9 @@ four-node snapshot or fixture:
 - Verify the `RADIO_3D` marker uses the no-GPS estimated style and label.
 - Verify altitude is absent from map labels but remains present in tables or
   debug details.
+- Verify the Field checklist and local range links render from the deterministic
+  fixture.
+- Verify the browser can record typed and text telemetry into downloadable
+  NDJSON offline.
 - Capture a screenshot artifact for review when the smoke test runs locally or
   in CI.

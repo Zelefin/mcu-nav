@@ -41,13 +41,13 @@
   .map-head h2 { margin:0; }
   .map-head .pill { border-radius:6px; }
   #map { height:560px; min-height:360px; position:relative; overflow:hidden; background:#d7dbc9; }
-  .plot-layer { position:absolute; inset:0; background:
+  .plot-layer { position:absolute; inset:0; z-index:0; background:
     linear-gradient(rgba(48,83,109,.18) 1px, transparent 1px),
     linear-gradient(90deg, rgba(48,83,109,.18) 1px, transparent 1px),
     radial-gradient(circle at 50% 50%, rgba(84,133,88,.16), transparent 45%),
     #d7dbc9; background-size:64px 64px,64px 64px,100% 100%,100% 100%; }
-  .map-empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:13px; pointer-events:none; }
-  .node-marker { display:inline-flex; align-items:center; gap:6px; width:max-content; max-width:max-content; color:var(--fg); filter:drop-shadow(0 2px 5px rgba(0,0,0,.55)); transform:translate(-50%,-50%); }
+  .map-empty { position:absolute; inset:0; z-index:3; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:13px; pointer-events:none; }
+  .node-marker { display:inline-flex; align-items:center; gap:6px; width:max-content; max-width:max-content; z-index:2; color:var(--fg); filter:drop-shadow(0 2px 5px rgba(0,0,0,.55)); transform:translate(-50%,-50%); }
   .maplibregl-marker .node-marker { transform:none; }
   .node-dot { width:16px; height:16px; border-radius:50%; border:2px solid #e6edf3; background:var(--accent); box-shadow:0 0 0 3px rgba(77,163,255,.22); flex:0 0 16px; }
   .node-label { max-width:220px; padding:2px 7px; border-radius:5px; background:rgba(15,18,22,.88); border:1px solid rgba(230,237,243,.16); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font:12px/1.35 ui-monospace,Menlo,Consolas,monospace; }
@@ -57,6 +57,10 @@
   .node-marker.stale { opacity:.43; }
   .node-marker.this .node-dot { border-color:#fff; box-shadow:0 0 0 4px rgba(255,255,255,.18),0 0 0 8px rgba(77,163,255,.13); }
   .maplibregl-popup-content { background:#171c23; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:8px 10px; font:12px/1.35 system-ui,sans-serif; }
+  .range-layer { position:absolute; inset:0; z-index:1; pointer-events:none; overflow:visible; }
+  .range-line { stroke:var(--accent); stroke-width:2; stroke-dasharray:6 4; opacity:.82; vector-effect:non-scaling-stroke; }
+  .range-line.stale { stroke:var(--warn); opacity:.62; }
+  .range-label { position:absolute; transform:translate(-50%,-50%); padding:2px 6px; border-radius:5px; background:rgba(15,18,22,.88); border:1px solid rgba(230,237,243,.16); color:var(--fg); font:11px/1.35 ui-monospace,Menlo,Consolas,monospace; white-space:nowrap; }
   .kv { display:flex; justify-content:space-between; gap:8px; padding:4px 0; border-bottom:1px dashed var(--line); }
   .kv:last-child { border-bottom:0; }
   .kv span:first-child { color:var(--muted); }
@@ -98,6 +102,12 @@
   .peer-table col:nth-child(7) { width:14%; }
   .peer-table col:nth-child(8) { width:14%; }
   .peer-table col:nth-child(9) { width:11%; }
+  .field-table col:nth-child(1) { width:20%; }
+  .field-table col:nth-child(2) { width:15%; }
+  .field-table col:nth-child(3) { width:14%; }
+  .field-table col:nth-child(4) { width:18%; }
+  .field-table col:nth-child(5) { width:14%; }
+  .field-table col:nth-child(6) { width:19%; }
   #log { height:160px; overflow:auto; background:#0c0f13; border:1px solid var(--line); border-radius:8px; padding:8px; font-family:ui-monospace,monospace; font-size:12px; color:var(--muted); white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; }
   .note { color:var(--muted); font-size:12px; }
   @media (max-width: 1100px) {
@@ -126,6 +136,8 @@
   <span class="grow"></span>
   <button id="connect" class="primary">Connect</button>
   <button id="disconnect" disabled>Disconnect</button>
+  <button id="debugToggle" disabled>Debug off</button>
+  <button id="recordToggle">Record</button>
 </header>
 
 <main>
@@ -177,9 +189,18 @@
       </div>
       <div id="map">
         <div id="plotLayer" class="plot-layer"></div>
+        <svg id="rangeSvg" class="range-layer"></svg>
+        <div id="rangeLabels" class="range-layer"></div>
         <div id="mapEmpty" class="map-empty">No live positions.</div>
       </div>
     </div>
+
+    <h2>Field checklist</h2>
+    <table class="data-table field-table">
+      <colgroup><col><col><col><col><col><col></colgroup>
+      <thead><tr><th>Node</th><th>Status</th><th>GNSS</th><th>Range</th><th>Anchor</th><th>Solution</th></tr></thead>
+      <tbody id="fieldChecklist"></tbody>
+    </table>
 
     <h2>Distance observations</h2>
     <table class="data-table distance-table">
@@ -214,6 +235,11 @@ let pmtilesProtocol = null;
 let mapMode = "plot";
 let mapAutoFollow = true;
 let mapInitAttempted = false;
+let debugEnabled = false;
+let recording = false;
+let recordingStartedAt = 0;
+let recordCount = 0;
+const captureLines = [];
 const mapLibreMarkers = new Map();
 const plotMarkers = new Map();
 const lastMapPositions = new Map();
@@ -224,8 +250,10 @@ const KYIV_PM_TILES = "kyiv-oblast.pmtiles";
 const KYIV_CENTER = [30.5234, 50.4501];
 const STALE_POSITION_MS = 5000;
 const STALE_DISPLAY_MS = 30000;
+const FIELD_NODE_IDS = [0, 1, 2, 3];
 const discoveredNodes = new Set();
 const observations = new Map();
+const nodeQualities = new Map();
 const nodeNames = loadNodeNames();
 
 const $ = (id) => document.getElementById(id);
@@ -462,6 +490,28 @@ function snapshotMapPositions(snapshot = lastSnapshot) {
     });
   }
 
+  const idsWithPositions = new Set(positions.map((pos) => pos.id));
+  for (const [id, quality] of nodeQualities) {
+    if (idsWithPositions.has(id)) continue;
+    const data = quality?.data;
+    const ageMs = recordAgeMs(quality);
+    if (!data || ageMs === null || ageMs > STALE_DISPLAY_MS) continue;
+    const source = normalizedPositionSource(data.solution_source);
+    if (source === "NONE" || !coordinatesValid(data.lat_e7, data.lon_e7)) continue;
+    positions.push({
+      id,
+      source,
+      lat: Number(data.lat_e7) / 1e7,
+      lon: Number(data.lon_e7) / 1e7,
+      label: mapLabelFor(id, source, id === currentNodeId),
+      degraded: false,
+      stale: ageMs > STALE_POSITION_MS,
+      ageMs,
+      isThis: id === currentNodeId,
+      updatedAt: now - ageMs,
+    });
+  }
+
   for (const pos of positions) lastMapPositions.set(pos.id, pos);
   return positions;
 }
@@ -514,7 +564,7 @@ function setConnected(on) {
   $("conn").className = "pill " + (on ? "on" : "off");
   $("connect").disabled = on;
   $("disconnect").disabled = !on;
-  for (const id of ["setName","setNodeId","gpsToggle","mockToggle","setAlt"]) $(id).disabled = !on;
+  for (const id of ["setName","setNodeId","gpsToggle","mockToggle","setAlt","debugToggle"]) $(id).disabled = !on;
   renderNodeNames(true);
 }
 
@@ -568,18 +618,121 @@ async function readLoop() {
   }
 }
 
-function handleLine(line) {
-  if (line.startsWith("{")) {
-    try { render(JSON.parse(line)); return; } catch (_) { /* fall through to log */ }
+function ingestRangeRecord(record) {
+  const fromId = Number(record.from_id);
+  const toId = Number(record.to_id);
+  if (!isNodeId(fromId) || !isNodeId(toId)) return;
+  const noteParts = [record.ok ? "range ok" : "range failed"];
+  if (record.range_fail_reason) noteParts.push(`reason=${record.range_fail_reason}`);
+  if (hasNumber(record.raw_reg)) noteParts.push(`raw=${record.raw_reg}`);
+  if (hasNumber(record.uncorrected_m)) noteParts.push(`uncorrected=${Number(record.uncorrected_m).toFixed(2)}m`);
+  if (record.source === "air_report") noteParts.push("air");
+  recordObservation({
+    fromId,
+    toId,
+    requestId: hasNumber(record.request_id) ? Number(record.request_id) : null,
+    rangeMm: hasNumber(record.range_mm) ? Number(record.range_mm) : null,
+    rssi: hasNumber(record.rssi_dbm) ? Number(record.rssi_dbm) : null,
+    snr: hasNumber(record.snr_db) ? Number(record.snr_db) : null,
+    rawReg: hasNumber(record.raw_reg) ? Number(record.raw_reg) : null,
+    uncorrectedM: hasNumber(record.uncorrected_m) ? Number(record.uncorrected_m) : null,
+    failReason: record.range_fail_reason || null,
+    source: record.source || "typed",
+    state: record.ok ? "ok" : "fail",
+    note: noteParts.join("; "),
+    discover: true,
+  });
+}
+
+function ingestNodeQualityRecord(record) {
+  const nodeId = Number(record.node_id);
+  if (!isNodeId(nodeId)) return;
+  discoverNode(nodeId);
+  nodeQualities.set(nodeId, { ...record, receivedAt: Date.now() });
+  renderNodeNames();
+  renderFieldChecklist();
+}
+
+function ingestTypedRecord(record, options = {}) {
+  if (!record || typeof record !== "object") return false;
+  if (options.capture !== false && record.type !== "meta") captureRecord(record);
+  if (record.type === "snapshot") {
+    const snapshot = record.data || record.snapshot;
+    if (snapshot) render(snapshot);
+    return true;
   }
-  parseRangeLog(line);
-  logLine(line);
+  if (record.type === "range") {
+    ingestRangeRecord(record);
+    return true;
+  }
+  if (record.type === "node_quality") {
+    ingestNodeQualityRecord(record);
+    return true;
+  }
+  if (record.type === "log") {
+    const text = String(record.text || "");
+    if (text) {
+      logLine(text, record.level === "ERROR");
+      const derived = makeRangeRecordFromLog(text, record.ts_ms || Date.now());
+      if (derived) ingestRangeRecord(derived);
+    }
+    return true;
+  }
+  return false;
+}
+
+function normalizeJsonLine(parsed, tsMs) {
+  if (parsed && typeof parsed === "object" && parsed.type) {
+    return { ...parsed, ts_ms: parsed.ts_ms ?? tsMs };
+  }
+  if (parsed && typeof parsed === "object" && parsed.node) {
+    return {
+      type: "snapshot",
+      ts_ms: tsMs,
+      ts: parsed.t,
+      data: parsed,
+    };
+  }
+  return null;
+}
+
+function handleLine(line) {
+  const tsMs = Date.now();
+  if (line.startsWith("{")) {
+    try {
+      const record = normalizeJsonLine(JSON.parse(line), tsMs);
+      if (record && ingestTypedRecord(record)) return;
+    } catch (_) {
+      /* fall through to text log */
+    }
+  }
+  const logRecord = makeLogRecord(line, tsMs);
+  captureRecord(logRecord);
+  const rangeRecord = makeRangeRecordFromLog(line, tsMs);
+  if (rangeRecord) {
+    captureRecord(rangeRecord);
+    ingestRangeRecord(rangeRecord);
+  }
+  logLine(line, logRecord.level === "ERROR");
 }
 
 async function sendCommand(obj) {
   if (!writer) return;
   const enc = new TextEncoder();
   await writer.write(enc.encode(JSON.stringify(obj) + "\n"));
+}
+
+async function toggleDebugTelemetry() {
+  if (!writer) return;
+  debugEnabled = !debugEnabled;
+  $("debugToggle").textContent = debugEnabled ? "Debug on" : "Debug off";
+  $("debugToggle").classList.toggle("primary", debugEnabled);
+  try {
+    await sendCommand({ cmd: "debug", on: debugEnabled });
+    logLine(`[debug telemetry ${debugEnabled ? "on" : "off"}]`);
+  } catch (e) {
+    logLine("debug toggle failed: " + e.message, true);
+  }
 }
 
 function fieldValue(line, key) {
@@ -604,37 +757,151 @@ function floatField(line, key) {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
-function parseRangeLog(line) {
-  if (!line.includes("range_result ok=")) return;
+function recordAgeMs(record) {
+  if (!record) return null;
+  const now = Date.now();
+  const receivedAt = hasNumber(record.receivedAt) ? Number(record.receivedAt) : now;
+  const ageMs = hasNumber(record.age_ms) ? Number(record.age_ms) : 0;
+  return Math.max(0, now - receivedAt + ageMs);
+}
+
+function fieldStateForAge(ageMs) {
+  if (ageMs === null || ageMs === undefined) return "missing";
+  if (ageMs <= STALE_POSITION_MS) return "fresh";
+  if (ageMs <= STALE_DISPLAY_MS) return "stale";
+  return "expired";
+}
+
+function fieldStateClass(state) {
+  if (state === "fresh") return "ok";
+  if (state === "stale") return "warn";
+  if (state === "expired" || state === "missing") return "bad";
+  return "";
+}
+
+function displayNodeLabel(id) {
+  return `${labelFor(id)} #${id}`;
+}
+
+function isoForFilename(tsMs) {
+  return new Date(tsMs).toISOString().replaceAll(":", "-").replaceAll(".", "-");
+}
+
+function parseDeviceTimestamp(line) {
+  return intField(line, "t");
+}
+
+function parseLogLevel(line) {
+  const match = line.match(/\[(TRACE|DEBUG|INFO|WARN|ERROR)\]/);
+  return match ? match[1] : null;
+}
+
+function parseLogTag(line) {
+  const match = line.match(/\[(TRACE|DEBUG|INFO|WARN|ERROR)\]\s+\[([^\]]+)\]/);
+  return match ? match[2] : null;
+}
+
+function makeLogRecord(line, tsMs = Date.now()) {
+  const record = {
+    type: "log",
+    ts_ms: tsMs,
+    text: line,
+  };
+  const ts = parseDeviceTimestamp(line);
+  const level = parseLogLevel(line);
+  const tag = parseLogTag(line);
+  if (ts !== null) record.ts = ts;
+  if (level) record.level = level;
+  if (tag) record.tag = tag;
+  return record;
+}
+
+function makeRangeRecordFromLog(line, tsMs = Date.now()) {
+  if (!line.includes("range_result ok=")) return null;
   const fromId = intField(line, "from");
   const toId = intField(line, "to");
   const requestId = intField(line, "request_id");
-  if (!isNodeId(fromId) || !isNodeId(toId)) return;
+  if (!isNodeId(fromId) || !isNodeId(toId)) return null;
   const ok = fieldValue(line, "ok") === "true";
+  const record = {
+    type: "range",
+    ts_ms: tsMs,
+    from_id: fromId,
+    to_id: toId,
+    request_id: requestId,
+    ok,
+    source: fieldValue(line, "source") || "log",
+  };
+  const ts = parseDeviceTimestamp(line);
+  const rangeMm = intField(line, "range_mm");
   const rawReg = intField(line, "raw_reg");
   const uncorrectedM = floatField(line, "uncorrected_m");
+  const rssi = floatField(line, "rssi_dbm");
+  const snr = floatField(line, "snr_db");
   const failReason = fieldValue(line, "range_fail_reason");
-  const source = fieldValue(line, "source") || "log";
-  const noteParts = [fieldValue(line, "note") || (ok ? "range ok" : "range failed")];
-  if (failReason) noteParts.push(`reason=${failReason}`);
-  if (rawReg !== null) noteParts.push(`raw=${rawReg}`);
-  if (uncorrectedM !== null) noteParts.push(`uncorrected=${uncorrectedM.toFixed(2)}m`);
-  if (source === "air_report") noteParts.push("air");
-  recordObservation({
-    fromId,
-    toId,
-    requestId,
-    rangeMm: intField(line, "range_mm"),
-    rssi: floatField(line, "rssi_dbm"),
-    snr: floatField(line, "snr_db"),
-    rawReg,
-    uncorrectedM,
-    failReason,
-    source,
-    state: ok ? "ok" : "fail",
-    note: noteParts.join("; "),
-    discover: true,
-  });
+  if (ts !== null) record.ts = ts;
+  if (rangeMm !== null) record.range_mm = rangeMm;
+  if (rawReg !== null) record.raw_reg = rawReg;
+  if (uncorrectedM !== null) record.uncorrected_m = uncorrectedM;
+  if (rssi !== null) record.rssi_dbm = rssi;
+  if (snr !== null) record.snr_db = snr;
+  if (failReason) record.range_fail_reason = failReason;
+  return record;
+}
+
+function captureRecord(record) {
+  if (!recording || !record) return;
+  captureLines.push(JSON.stringify(record));
+  recordCount += 1;
+  updateRecordButton();
+}
+
+function updateRecordButton() {
+  $("recordToggle").textContent = recording
+    ? `Stop (${recordCount})`
+    : "Record";
+}
+
+function startRecording() {
+  captureLines.length = 0;
+  recordingStartedAt = Date.now();
+  recordCount = 0;
+  recording = true;
+  captureLines.push(JSON.stringify({
+    type: "meta",
+    ts_ms: recordingStartedAt,
+    schema_version: 1,
+    app_version: "control-app-1.0.0",
+    firmware_build: "",
+    node_id: Number.isInteger(currentNodeId) ? currentNodeId : null,
+    node_name: Number.isInteger(currentNodeId) ? labelFor(currentNodeId) : "",
+    debug: debugEnabled,
+  }));
+  updateRecordButton();
+  logLine("[recording started]");
+}
+
+function stopRecording() {
+  if (!recording) return;
+  recording = false;
+  const text = captureLines.join("\n") + "\n";
+  const blob = new Blob([text], { type: "application/x-ndjson" });
+  const url = URL.createObjectURL(blob);
+  const nodePart = Number.isInteger(currentNodeId) ? String(currentNodeId) : "unknown";
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `nav-mcu-node-${nodePart}-${isoForFilename(recordingStartedAt)}.ndjson`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  updateRecordButton();
+  logLine(`[recording saved: ${recordCount} records]`);
+}
+
+function toggleRecording() {
+  if (recording) stopRecording();
+  else startRecording();
 }
 
 function recordObservation(obs) {
@@ -645,6 +912,14 @@ function recordObservation(obs) {
     graphChanged = discoverNode(obs.toId) || graphChanged;
   }
   const key = pairKey(obs.fromId, obs.toId);
+  const existing = observations.get(key);
+  if (obs.source === "snapshot" && existing && existing.source !== "snapshot") {
+    renderDistanceObservations();
+    renderPeerSnapshot();
+    renderFieldChecklist();
+    renderMap();
+    return;
+  }
   const [aId, bId] = orderedPair(obs.fromId, obs.toId);
   observations.set(key, {
     aId,
@@ -666,6 +941,8 @@ function recordObservation(obs) {
   if (graphChanged) renderNodeNames();
   renderDistanceObservations();
   renderPeerSnapshot();
+  renderFieldChecklist();
+  renderMap();
 }
 
 async function initMap() {
@@ -754,16 +1031,135 @@ function plotProject(pos, bounds) {
   return { x, y };
 }
 
-function renderPlotMarkers(positions) {
-  const layer = $("plotLayer");
-  layer.style.display = "block";
-  const active = new Set();
-  const bounds = positions.reduce((acc, pos) => ({
+function plotBoundsForPositions(positions) {
+  return positions.reduce((acc, pos) => ({
     minLat: Math.min(acc.minLat, pos.lat),
     maxLat: Math.max(acc.maxLat, pos.lat),
     minLon: Math.min(acc.minLon, pos.lon),
     maxLon: Math.max(acc.maxLon, pos.lon),
   }), { minLat: 90, maxLat: -90, minLon: 180, maxLon: -180 });
+}
+
+function rangeLineFeatures(positions) {
+  const posById = new Map(positions.map((pos) => [pos.id, pos]));
+  const local = Number.isInteger(currentNodeId) ? posById.get(currentNodeId) : null;
+  if (!local) return [];
+  const now = Date.now();
+  const lines = [];
+  for (const pos of positions) {
+    if (pos.id === currentNodeId) continue;
+    const obs = bestObservationForNode(pos.id);
+    if (!obs || obs.state !== "ok" || !hasNumber(obs.rangeMm) || !obs.updatedAt) continue;
+    const ageMs = now - obs.updatedAt;
+    if (ageMs > STALE_DISPLAY_MS) continue;
+    lines.push({
+      id: pos.id,
+      from: local,
+      to: pos,
+      rangeMm: Number(obs.rangeMm),
+      ageMs,
+      stale: ageMs > STALE_POSITION_MS,
+      label: `${fmtM(obs.rangeMm)} ${fmtAge(ageMs)}`,
+    });
+  }
+  return lines;
+}
+
+function renderPlotRangeLines(positions) {
+  const svg = $("rangeSvg");
+  const labels = $("rangeLabels");
+  const lines = rangeLineFeatures(positions);
+  $("map").dataset.rangeLines = String(lines.length);
+  svg.innerHTML = "";
+  labels.innerHTML = "";
+  svg.setAttribute("viewBox", "0 0 100 100");
+  if (!lines.length || !positions.length) return;
+  const bounds = plotBoundsForPositions(positions);
+  for (const line of lines) {
+    const a = plotProject(line.from, bounds);
+    const b = plotProject(line.to, bounds);
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    path.setAttribute("x1", a.x.toFixed(3));
+    path.setAttribute("y1", a.y.toFixed(3));
+    path.setAttribute("x2", b.x.toFixed(3));
+    path.setAttribute("y2", b.y.toFixed(3));
+    path.setAttribute("class", `range-line${line.stale ? " stale" : ""}`);
+    svg.appendChild(path);
+
+    const label = document.createElement("div");
+    label.className = "range-label";
+    label.textContent = line.label;
+    label.style.left = `${((a.x + b.x) / 2).toFixed(3)}%`;
+    label.style.top = `${((a.y + b.y) / 2).toFixed(3)}%`;
+    labels.appendChild(label);
+  }
+}
+
+function rangeGeoJson(positions) {
+  return {
+    type: "FeatureCollection",
+    features: rangeLineFeatures(positions).map((line) => ({
+      type: "Feature",
+      properties: {
+        id: line.id,
+        label: line.label,
+        stale: line.stale,
+      },
+      geometry: {
+        type: "LineString",
+        coordinates: [[line.from.lon, line.from.lat], [line.to.lon, line.to.lat]],
+      },
+    })),
+  };
+}
+
+function renderMapLibreRangeLines(positions) {
+  const geojson = rangeGeoJson(positions);
+  $("map").dataset.rangeLines = String(geojson.features.length);
+  if (!map || !map.isStyleLoaded()) return;
+  if (!map.getSource("local-range-lines")) {
+    map.addSource("local-range-lines", { type: "geojson", data: geojson });
+    map.addLayer({
+      id: "local-range-lines-fresh",
+      type: "line",
+      source: "local-range-lines",
+      filter: ["==", ["get", "stale"], false],
+      paint: { "line-color": "#4da3ff", "line-width": 2, "line-dasharray": [2, 2], "line-opacity": 0.82 },
+    });
+    map.addLayer({
+      id: "local-range-lines-stale",
+      type: "line",
+      source: "local-range-lines",
+      filter: ["==", ["get", "stale"], true],
+      paint: { "line-color": "#d29922", "line-width": 2, "line-dasharray": [2, 2], "line-opacity": 0.62 },
+    });
+    map.addLayer({
+      id: "local-range-labels",
+      type: "symbol",
+      source: "local-range-lines",
+      layout: {
+        "symbol-placement": "line-center",
+        "text-field": ["get", "label"],
+        "text-size": 11,
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+      },
+      paint: {
+        "text-color": "#e6edf3",
+        "text-halo-color": "#0f1216",
+        "text-halo-width": 2,
+      },
+    });
+    return;
+  }
+  map.getSource("local-range-lines").setData(geojson);
+}
+
+function renderPlotMarkers(positions) {
+  const layer = $("plotLayer");
+  layer.style.display = "block";
+  const active = new Set();
+  const bounds = plotBoundsForPositions(positions);
 
   for (const pos of positions) {
     active.add(pos.id);
@@ -824,9 +1220,13 @@ function renderMap(forceFit = false) {
   if (mapMode === "map" && map) {
     for (const [, el] of plotMarkers) el.remove();
     plotMarkers.clear();
+    $("rangeSvg").innerHTML = "";
+    $("rangeLabels").innerHTML = "";
     renderMapLibreMarkers(positions);
+    renderMapLibreRangeLines(positions);
   } else {
     renderPlotMarkers(positions);
+    renderPlotRangeLines(positions);
   }
   fitMapPositions(positions, forceFit);
 }
@@ -972,6 +1372,95 @@ function renderNodeNames(force = false) {
   }
 }
 
+function nodeQualityFor(id) {
+  return nodeQualities.get(id) || null;
+}
+
+function qualityHasGnss(quality) {
+  const data = quality?.data;
+  if (!data) return false;
+  const source = normalizedPositionSource(data.solution_source);
+  if (source === "GNSS" && coordinatesValid(data.lat_e7, data.lon_e7)) return true;
+  return data.fix_type && data.fix_type !== "NONE" && coordinatesValid(data.lat_e7, data.lon_e7);
+}
+
+function peerHasGnss(peer) {
+  if (!peer) return false;
+  const source = normalizedPositionSource(peer.position_source || (peer.gnss ? "GNSS" : "NONE"));
+  return source === "GNSS" && fallbackPositionValid(source, peer.position_valid, peer.position_degraded) &&
+    coordinatesValid(peer.lat_e7, peer.lon_e7);
+}
+
+function localHasGnss(snapshot) {
+  const source = fallbackPositionSourceForSnapshot(snapshot);
+  return source === "GNSS" && fallbackPositionValid(source, snapshot?.position_valid, snapshot?.position_degraded);
+}
+
+function evidenceAgeForNode(id, peer, quality, obs) {
+  if (id === currentNodeId && lastSnapshot) return 0;
+  const ages = [];
+  if (peer && hasNumber(peer.telemetry_age_ms)) ages.push(Number(peer.telemetry_age_ms));
+  const qualityAge = recordAgeMs(quality);
+  if (qualityAge !== null) ages.push(qualityAge);
+  if (obs?.updatedAt) ages.push(Date.now() - obs.updatedAt);
+  return ages.length ? Math.min(...ages) : null;
+}
+
+function rangeInfoForNode(id, peer, obs) {
+  if (id === currentNodeId) return { ok: false, text: DASH, ageMs: null };
+  if (obs?.state === "ok" && hasNumber(obs.rangeMm) && obs.updatedAt) {
+    const ageMs = Date.now() - obs.updatedAt;
+    if (ageMs <= STALE_DISPLAY_MS) return { ok: true, text: `${fmtM(obs.rangeMm)} ${fmtAge(ageMs)}`, ageMs };
+    return { ok: false, text: `${fmtM(obs.rangeMm)} expired`, ageMs };
+  }
+  if (peer?.range_valid && hasNumber(peer.range_mm)) {
+    const ageMs = hasNumber(peer.telemetry_age_ms) ? Number(peer.telemetry_age_ms) : null;
+    return {
+      ok: ageMs === null || ageMs <= STALE_DISPLAY_MS,
+      text: `${fmtM(peer.range_mm)}${ageMs === null ? "" : ` ${fmtAge(ageMs)}`}`,
+      ageMs,
+    };
+  }
+  return { ok: false, text: obs?.state === "fail" ? "fail" : DASH, ageMs: null };
+}
+
+function solutionTextForNode(id, peer, quality) {
+  if (id === currentNodeId && lastSnapshot) return lastSnapshot.src || lastSnapshot.sol || DASH;
+  const data = quality?.data;
+  if (data?.solution_source && data.solution_source !== "NONE") return data.solution_source;
+  if (data?.solution_status && data.solution_status !== "NONE") return data.solution_status;
+  if (peer?.position_source && peer.position_source !== "NONE") return peer.position_source;
+  return DASH;
+}
+
+function renderFieldChecklist() {
+  const tb = $("fieldChecklist");
+  if (!tb) return;
+  const peers = peerMap();
+  tb.innerHTML = "";
+  for (const id of FIELD_NODE_IDS) {
+    const peer = peers.get(id);
+    const quality = nodeQualityFor(id);
+    const obs = bestObservationForNode(id);
+    const ageMs = evidenceAgeForNode(id, peer, quality, obs);
+    const state = fieldStateForAge(ageMs);
+    const range = rangeInfoForNode(id, peer, obs);
+    const gnss = id === currentNodeId ? localHasGnss(lastSnapshot) : (peerHasGnss(peer) || qualityHasGnss(quality));
+    const anchorReady = id !== currentNodeId && gnss && range.ok;
+    const anchorText = id === currentNodeId ? "local" : (anchorReady ? (range.ageMs > STALE_POSITION_MS ? "stale ok" : "ready") : DASH);
+    const tr = document.createElement("tr");
+    if (state !== "fresh") tr.className = "stale";
+    tr.innerHTML =
+      `<td class="text" data-label="Node">${escapeHtml(displayNodeLabel(id))}${id === currentNodeId ? " (this)" : ""}</td>` +
+      `<td class="${fieldStateClass(state)}" data-label="Status">${ageMs === null ? "missing" : `${state} ${fmtAge(ageMs)}`}</td>` +
+      `<td data-label="GNSS">${gnss ? "yes" : DASH}</td>` +
+      `<td class="mono num" data-label="Range">${range.text}</td>` +
+      `<td class="${anchorReady ? "ok" : "warn"}" data-label="Anchor">${anchorText}</td>` +
+      `<td class="mono" data-label="Solution">${escapeHtml(solutionTextForNode(id, peer, quality))}</td>`;
+    tb.appendChild(tr);
+  }
+}
+
 function ingestSnapshotPeerRanges(s) {
   if (!s || !isNodeId(Number(s.node?.id))) return;
   const nodeId = Number(s.node.id);
@@ -1073,6 +1562,7 @@ function render(s) {
   renderNodeNames();
   renderDistanceObservations();
   renderPeerSnapshot();
+  renderFieldChecklist();
   renderMap();
 }
 
@@ -1162,6 +1652,8 @@ $("setNodeId").onclick = () => {
 $("gpsToggle").onclick = () => sendCommand({ cmd: "gps", enabled: !lastGps });
 $("mockToggle").onclick = () => sendCommand({ cmd: "mock", enabled: !lastMock });
 $("setAlt").onclick = () => { const v = parseInt($("altInput").value, 10); if (!Number.isNaN(v)) sendCommand({ cmd: "alt", alt_mm: v }); };
+$("debugToggle").onclick = toggleDebugTelemetry;
+$("recordToggle").onclick = toggleRecording;
 $("demoMap").onclick = loadDemo;
 $("fullscreenMap").onclick = toggleMapFullscreen;
 $("recenterMap").onclick = () => {
@@ -1197,11 +1689,13 @@ $("nodeNames").addEventListener("click", (event) => {
 renderNodeNames(true);
 renderDistanceObservations();
 renderPeerSnapshot();
+renderFieldChecklist();
 initMap();
 if (new URLSearchParams(location.search).get("demo") === "1") loadDemo();
 setInterval(() => {
   renderDistanceObservations();
   renderPeerSnapshot();
+  renderFieldChecklist();
   renderMap();
 }, 1000);
 window.addEventListener("beforeunload", () => { if (port) disconnect(); });

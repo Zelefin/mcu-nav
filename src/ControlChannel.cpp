@@ -26,8 +26,8 @@
 namespace {
 
 constexpr uint32_t kSnapshotPeriodMs = 500u;
-constexpr uint32_t kHardwareTelemetryTtlMs = 3000u;
-constexpr uint32_t kHardwareRangeTtlMs = 15000u;
+constexpr uint32_t kHardwareTelemetryTtlMs = 30000u;
+constexpr uint32_t kHardwareRangeTtlMs = 30000u;
 constexpr uint32_t kHardwareLocalAltitudeTtlMs = 2000u;
 constexpr size_t kLineMax = 256u;
 constexpr size_t kRecordBufMax = 2048u;
