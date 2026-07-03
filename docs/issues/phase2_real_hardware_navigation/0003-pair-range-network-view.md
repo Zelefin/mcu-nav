@@ -8,7 +8,7 @@ third-party observations must remain network-health data and must not become
 local anchor distances.
 
 The pair range view must be visible through snapshots or serial JSON and through
-the control app so a user connected to one node can inspect A-B, A-C, and B-C
+the telemetry UI so a user connected to one node can inspect A-B, A-C, and B-C
 range health.
 
 ## Acceptance criteria
@@ -20,7 +20,7 @@ range health.
 - [ ] Third-party ranges are visible for diagnostics but do not make a peer
       usable as a local anchor.
 - [ ] Serial JSON exposes the pair range view in a compact, deterministic shape.
-- [ ] The control app shows pair range health for local and third-party pairs.
+- [ ] The telemetry UI shows pair range health for local and third-party pairs.
 - [ ] Replay fixtures and tests cover local-endpoint and third-party pairs.
 - [ ] Docs for data model, data flow, replay, and radio protocol are
       synchronized.

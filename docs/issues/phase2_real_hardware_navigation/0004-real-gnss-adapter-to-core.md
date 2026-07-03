@@ -12,13 +12,13 @@ parser, stamps emitted samples with system time, and injects
 - [ ] UART NMEA bytes from the GPS module are processed through the portable
       byte-stream parser.
 - [ ] Emitted GNSS samples are stamped with system time before core injection.
-- [ ] When GPS is disabled through config/control app, local GNSS samples do not
+- [ ] When GPS is disabled through config/telemetry UI, local GNSS samples do not
       become the navigation solution source.
 - [ ] Valid GNSS fixes update the local snapshot path when forced-denied mode is
       not active.
 - [ ] Invalid or no-fix NMEA input is logged or surfaced as diagnostics without
       crashing or allocating dynamically in the portable parser.
-- [ ] The control app shows enough local GNSS state to confirm the adapter path.
+- [ ] The telemetry UI shows enough local GNSS state to confirm the adapter path.
 - [ ] Host parser tests remain deterministic, and hardware evidence is captured
       for at least one GPS-capable board.
 

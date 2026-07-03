@@ -6,7 +6,7 @@ We want to analyze **network quality** and **trilateration quality** of the real
 multi-node system after the fact, and use an AI agent to turn recordings into
 findings and recommendations. None of that is possible today:
 
-- The control app captures nothing durable: a volatile 400-line serial-log view,
+- The telemetry UI captures durable sessions; the old single-file UI only had a volatile 400-line serial-log view,
   only the latest snapshot, one observation per pair, and no export/storage. Log
   collection is net-new.
 - The control-channel snapshot exposes ~10 per-peer fields; the core computes far
@@ -23,12 +23,12 @@ The desired outcome: an operator connects to one node, enables **debug telemetry
 mode**, and that node asks peers over the radio to broadcast a compact **node
 quality report** (best-effort, never preempting ranging, off by default). The
 connected node decodes these and emits **typed records** on the control channel;
-the control app streams them to disk as an **NDJSON capture session**; an
+the telemetry UI streams them to disk as an **NDJSON capture session**; an
 `analyze-capture` skill reads the capture and produces a quality report with
 recommendations.
 
 This work is **firmware-first**. The browser side is captured as requirements
-only, because the control app is being migrated to React and will be built to
+only, because the UI has moved to React under `telemetry-ui/` and will be built to
 this contract later.
 
 See ADR 0004 (transport + lifetime decisions), `docs/radio_protocol.md`
@@ -62,7 +62,7 @@ connected node.
 ## User Stories
 
 1. As an operator, I want to enable debug telemetry mode on the connected node
-   from the control app, so that peers start reporting their quality without a
+   from the telemetry UI, so that peers start reporting their quality without a
    firmware reflash.
 2. As an operator, I want debug telemetry to be off after every power cycle, so
    that a node never silently steals air time in normal operation.
@@ -79,9 +79,9 @@ connected node.
 7. As a navigation developer, I want received quality reports treated as
    diagnostics with freshness and never folded into any anchor table, so that the
    solver inputs stay clean.
-8. As a control-app user (React), I want a Record toggle that streams every
+8. As a telemetry-UI user (React), I want a Record toggle that streams every
    control-channel record to a file, so that I can capture a real run for later.
-9. As a control-app user (React), I want a Debug toggle independent of Record, so
+9. As a telemetry-UI user (React), I want a Debug toggle independent of Record, so
    that I can view live or capture with or without debug telemetry.
 10. As an analyst, I want an NDJSON capture with a documented schema, so that the
     AI agent and humans can interpret it reproducibly.
@@ -138,7 +138,7 @@ Design decisions are recorded in ADR 0004 and `CONTEXT.md`. Concrete build notes
   radio buffer), `range` (result incl. `air_report`), `log` (text). Add sibling
   writers beside `nav_serial_write_snapshot` (~:51). `EmitterTask` (~:173) emits
   snapshot + buffered node_quality every 500 ms; range/log as they occur.
-- **Legacy break:** the current `control-app/index.html` `render()` expects a bare
+- **Legacy break:** the deprecated `control-app/index.html` `render()` expects a bare
   snapshot object and will not parse the typed envelope. Acceptable because the app
   is being replaced by React. An optional bare-snapshot compat line may be kept as
   a temporary shim, not the target design.
@@ -155,7 +155,7 @@ Design decisions are recorded in ADR 0004 and `CONTEXT.md`. Concrete build notes
 
 ### Browser (requirements only — React migration)
 
-- Do not edit `control-app/index.html`.
+- Do not edit deprecated `control-app/index.html`; update `telemetry-ui/`.
 - **Debug toggle:** sends `{"cmd":"debug","on":true|false}`; independent of Record.
 - **Record toggle:** `showSaveFilePicker()` → `FileSystemWritableFileStream`;
   stream every inbound control-channel record as one NDJSON line, wrapping each
@@ -173,7 +173,7 @@ Design decisions are recorded in ADR 0004 and `CONTEXT.md`. Concrete build notes
   round-trip and bounds tests pass in `tests/test_radio_protocol.c` /
   `tests/test_telemetry.c`. Existing replay tests (`ctest -R replay`) unchanged.
 - On-device (hardware integration gate, 4 nodes): flash 4 boards; connect the
-  control app (or a serial capture) to one; enable debug telemetry mode; confirm
+  telemetry UI (or a serial capture) to one; enable debug telemetry mode; confirm
   (a) peers' `node_quality` records arrive at the connected node, (b) ranging
   master/slave cadence is **not** degraded (priority held), (c) peers auto-revert
   within the TTL after debug is stopped / node disconnects, (d) no node boots in

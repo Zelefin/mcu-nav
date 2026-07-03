@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 /* Control channel codec: the newline-delimited JSON spoken over a node's
- * USB-serial port to the browser control-app. This module is the single source
+ * USB-serial port to the browser telemetry UI. This module is the single source
  * of truth for that wire format and is fully host-testable; the port layer only
  * supplies bytes and applies parsed commands. */
 
@@ -23,7 +23,7 @@ typedef struct {
     bool mock_enabled;
 } nav_serial_node_info_t;
 
-/* Commands the control-app can send. Flat, one verb per line. */
+/* Commands the telemetry UI can send. Flat, one verb per line. */
 typedef enum {
     NAV_CTRL_CMD_NONE = 0,
     NAV_CTRL_CMD_GET,          /* request an immediate snapshot */

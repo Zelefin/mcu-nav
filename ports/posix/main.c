@@ -8,7 +8,7 @@
 
 /* Host demo of the "single physical node" development flow: a GPS-denied local
  * node recovers its position by trilaterating against mock peers, then prints the
- * exact JSON snapshot a real node would stream to the browser control-app over
+ * exact JSON snapshot a real node would stream to the browser telemetry UI over
  * USB-serial. No radio, no peers, no four-node setup required. */
 
 static void emit_into_core(const nav_event_t *event, void *user)
@@ -99,6 +99,6 @@ int main(void)
     printf("recovered lat_e7=%ld lon_e7=%ld alt_mm=%ld (truth %ld,%ld,%ld)\n",
            (long)snapshot.position.lat_e7, (long)snapshot.position.lon_e7, (long)snapshot.position.alt_mm,
            (long)local_truth.lat_e7, (long)local_truth.lon_e7, (long)local_truth.alt_mm);
-    printf("control-app line: %s\n", line);
+    printf("telemetry-ui line: %s\n", line);
     return 0;
 }

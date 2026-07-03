@@ -7,7 +7,7 @@
 #include "nav/nav_serial_json.h"
 
 // Persistent per-node settings, stored in NVS so a node keeps its name and its
-// GPS/mock/altitude choices across reboots. The control-app edits these over the
+// GPS/mock/altitude choices across reboots. The telemetry UI edits these over the
 // USB-serial control channel.
 struct NodeConfig {
   uint8_t nodeId;

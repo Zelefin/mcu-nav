@@ -124,13 +124,15 @@ describe("App network view", () => {
     const { App } = await import("./App");
     render(<App />);
 
-    expect(screen.queryByRole("button", { name: /sample/i })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /open/i }));
+      expect(screen.queryByRole("button", { name: /sample/i })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: /open/i }));
 
     const peerTable = await screen.findByRole("table", { name: /peer snapshot/i });
 
     await waitFor(() => {
       expect(screen.queryByRole("table", { name: /distance observations/i })).toBeNull();
+      expect(screen.getByText("GPS use")).toBeTruthy();
+      expect(screen.getByRole("button", { name: /allow gps use/i })).toBeTruthy();
       expect(screen.queryByRole("button", { name: /mock/i })).toBeNull();
       expect(screen.queryByText(/mock peers/i)).toBeNull();
       expect(screen.queryByText(/node names/i)).toBeNull();

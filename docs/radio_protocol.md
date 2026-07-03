@@ -17,7 +17,7 @@ A node uses this protocol to:
 Each receiving node feeds incoming packets into its own `core/` as `nav_event_t`,
 which builds the per-peer "network view" (system view) and runs trilateration.
 
-> The **control channel** to the host control-app is a different link: newline
+> The **control channel** to the browser telemetry UI is a different link: newline
 > delimited JSON over the USB-serial port. It is not this radio protocol. See
 > `docs/data_flow.md` / `nav_serial_json`.
 
@@ -107,11 +107,11 @@ understand that a measurement is for pair A-B even when the listener is node C.
 The current C host-test payloads still carry a single `peer_id`, where the local
 node is implicit. That is sufficient for existing local-to-peer replay fixtures,
 but it is not sufficient for ESP32 TDMA hardware integration or a whole-network
-range view in `control-app/`.
+range view in `telemetry-ui/`.
 
 Until solver behavior is explicitly extended, only ranges where one endpoint is
 the local node are eligible anchor ranges. Third-party pair ranges must be kept
-as network-health/control-app observations, not folded into the per-peer anchor
+as network-health/telemetry-UI observations, not folded into the per-peer anchor
 table as local distances.
 
 ## Message Types
@@ -129,7 +129,7 @@ table as local distances.
 | `NODE_QUALITY_REPORT` (72) | peer → all | Compact per-node quality summary while debug telemetry mode is active. | diagnostics only (node quality report) |
 
 `SET_NODE_ID` / `SET_CONFIG` are **local configuration** applied on the node
-(now via the control-app over USB-serial), not air messages.
+(now via `telemetry-ui/` over USB-serial), not air messages.
 
 ## Payload Schemas
 
@@ -238,7 +238,7 @@ request_id_u16
 ```
 
 Third-party failures should appear in the same pair-range/network-health view as
-third-party successful ranges so the control app can show stale, failed, or
+third-party successful ranges so the telemetry UI can show stale, failed, or
 missing links between non-local nodes.
 
 ### `HEARTBEAT`

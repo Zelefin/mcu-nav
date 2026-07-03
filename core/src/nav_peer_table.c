@@ -106,9 +106,15 @@ bool nav_peer_table_update_range(nav_peer_table_t *table, const nav_range_result
     peer->range_mm = range->range_mm;
     peer->range_sigma_mm = range->range_sigma_mm;
     peer->range_valid = range->valid;
+    peer->range_position = peer->position;
+    peer->range_position_timestamp_ms = peer->last_telemetry_timestamp_ms;
+    peer->range_position_valid = range->valid && peer->gnss_valid;
     peer->rssi_dbm = range->rssi_dbm;
     peer->snr_db = range->snr_db;
     peer->last_reject_reason = range->valid ? NAV_REJECT_NONE : NAV_REJECT_STALE_RANGE;
+    if (!range->valid) {
+        peer->range_position_valid = false;
+    }
     return true;
 }
 
@@ -132,6 +138,7 @@ void nav_peer_table_mark_stale(nav_peer_table_t *table, uint32_t now_ms, uint32_
         }
         if (range_ttl_ms > 0u && range_age > range_ttl_ms) {
             peer->range_valid = false;
+            peer->range_position_valid = false;
             peer->range_quality = 0.0f;
             peer->anchor_quality = 0.0f;
             if (peer->last_reject_reason == NAV_REJECT_NONE) {

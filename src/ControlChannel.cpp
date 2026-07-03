@@ -13,18 +13,22 @@
 
 #include "Logger.h"
 #include "nav/nav_core.h"
+#include "nav/nav_gnss.h"
 #include "nav/nav_mock.h"
 #include "nav/nav_quality.h"
 #include "nav/nav_serial_json.h"
 #include "nav/nav_state_machine.h"
 
-#ifndef NAV_ENABLE_GPS_HEALTH
-#define NAV_ENABLE_GPS_HEALTH 0
+#ifndef NAV_ENABLE_GNSS
+#define NAV_ENABLE_GNSS 1
 #endif
 
 namespace {
 
 constexpr uint32_t kSnapshotPeriodMs = 500u;
+constexpr uint32_t kHardwareTelemetryTtlMs = 3000u;
+constexpr uint32_t kHardwareRangeTtlMs = 15000u;
+constexpr uint32_t kHardwareLocalAltitudeTtlMs = 2000u;
 constexpr size_t kLineMax = 256u;
 constexpr size_t kRecordBufMax = 1536u;
 
@@ -51,7 +55,7 @@ uint32_t nowMs() { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
 void seedMock();
 
 bool effectiveGpsEnabled() {
-#if NAV_ENABLE_GPS_HEALTH
+#if NAV_ENABLE_GNSS
   return gConfig.gpsEnabled;
 #else
   return false;
@@ -64,6 +68,9 @@ void applyCoreConfig() {
 
 void initCoreForConfig() {
   nav_config_t cfg = nav_config_default(gConfig.nodeId);
+  cfg.telemetry_ttl_ms = kHardwareTelemetryTtlMs;
+  cfg.range_ttl_ms = kHardwareRangeTtlMs;
+  cfg.local_altitude_ttl_ms = kHardwareLocalAltitudeTtlMs;
   cfg.min_anchor_triangle_area_m2 = 10.0f;
   cfg.degraded_anchor_triangle_area_m2 = 100.0f;
   nav_core_init(&gNav, &cfg);
@@ -163,7 +170,7 @@ void applyCommand(const nav_ctrl_command_t &cmd) {
       Logger::infof("CONFIG", "node name set to %s", gConfig.name);
       break;
     case NAV_CTRL_CMD_SET_GPS:
-#if NAV_ENABLE_GPS_HEALTH
+#if NAV_ENABLE_GNSS
       gConfig.gpsEnabled = cmd.bool_value;
       applyCoreConfig();
       changed = true;
@@ -295,7 +302,7 @@ namespace ControlChannel {
 
 void begin(const NodeConfig &config) {
   gConfig = config;
-#if !NAV_ENABLE_GPS_HEALTH
+#if !NAV_ENABLE_GNSS
   gConfig.gpsEnabled = false;
 #endif
 
@@ -328,6 +335,48 @@ bool isDebugEnabled() {
   const bool enabled = gDebugEnabled;
   xSemaphoreGive(gMutex);
   return enabled;
+}
+
+bool isGpsEnabled() {
+  if (gMutex == nullptr) {
+    return false;
+  }
+  xSemaphoreTake(gMutex, portMAX_DELAY);
+  const bool enabled = effectiveGpsEnabled();
+  xSemaphoreGive(gMutex);
+  return enabled;
+}
+
+bool getLocalTelemetry(uint32_t packetSeq, nav_peer_telemetry_t *out) {
+  if (out == nullptr || gMutex == nullptr) {
+    return false;
+  }
+
+  xSemaphoreTake(gMutex, portMAX_DELAY);
+  const uint32_t currentMs = nowMs();
+  const bool freshGnss =
+      gNav.local_gnss_present &&
+      (gNav.config.telemetry_ttl_ms == 0u || (currentMs - gNav.local_gnss.timestamp_ms) <= gNav.config.telemetry_ttl_ms);
+  const bool usableGnss = effectiveGpsEnabled() && freshGnss && nav_gnss_sample_is_usable(&gNav.local_gnss);
+  if (usableGnss) {
+    nav_snapshot_t snapshot;
+    (void)nav_core_get_snapshot(&gNav, &snapshot);
+    std::memset(out, 0, sizeof(*out));
+    out->node_id = gConfig.nodeId;
+    out->packet_seq = packetSeq;
+    out->timestamp_ms = currentMs;
+    out->position = gNav.local_gnss.position;
+    out->velocity = gNav.local_gnss.velocity;
+    out->fix_type = gNav.local_gnss.fix_type;
+    out->gnss_valid = true;
+    out->satellites = gNav.local_gnss.satellites;
+    out->hdop_centi = gNav.local_gnss.hdop_centi;
+    out->hacc_mm = gNav.local_gnss.hacc_mm;
+    out->vacc_mm = gNav.local_gnss.vacc_mm;
+    out->nav_mode = snapshot.nav_mode;
+  }
+  xSemaphoreGive(gMutex);
+  return usableGnss;
 }
 
 bool getLocalNodeQualityReport(uint32_t packetSeq, nav_node_quality_report_t *out) {

@@ -1,9 +1,9 @@
 # Capture NDJSON Schema
 
 A **capture session** is a newline-delimited JSON (NDJSON) recording of one
-control-channel session, streamed by the control app to a file on disk. It is the
+control-channel session, streamed by `telemetry-ui/` to a file on disk. It is the
 input format for offline analysis and the `analyze-capture` skill. This document
-is the contract that both the writer (control app) and readers (humans, the AI
+is the contract that both the writer (`telemetry-ui/`) and readers (humans, the AI
 agent) rely on.
 
 During firmware-first bring-up, piping a node's USB-serial output directly to a
@@ -19,7 +19,7 @@ The control channel itself is described in `docs/data_flow.md` and
 
 - One JSON object per line (`\n`-terminated). No trailing commas, no multi-line
   objects, no array wrapper.
-- Control-app recordings start with a `meta` record.
+- Telemetry UI recordings start with a `meta` record.
 - Direct firmware serial captures may omit `meta`; their first line may be
   `snapshot`, `node_quality`, `range`, or `log`.
 - Every non-`meta` line is one of `snapshot`, `node_quality`, `range`, `log`.
@@ -35,10 +35,10 @@ Every record carries:
 | Field | Type | Meaning |
 | ----- | ---- | ------- |
 | `type` | string | Record kind: `meta` \| `snapshot` \| `node_quality` \| `range` \| `log`. |
-| `ts_ms` | number | Browser wall-clock at receive, epoch milliseconds. Present in control-app captures; absent in direct firmware serial captures. |
+| `ts_ms` | number | Browser wall-clock at receive, epoch milliseconds. Present in telemetry-UI captures; absent in direct firmware serial captures. |
 | `ts` | number | Device monotonic milliseconds (`t` from the node), if present on the source record. Resets on node reboot. |
 
-`ts_ms` is added by the control app; `ts` comes from the device. Use `ts_ms` for
+`ts_ms` is added by `telemetry-ui/`; `ts` comes from the device. Use `ts_ms` for
 cross-node and cross-reboot alignment, `ts` for intra-session device ordering.
 
 ## Units
@@ -52,7 +52,7 @@ decibels. Quality scores are `0.0..1.0` unless a `_u8` suffix indicates a
 
 ### `meta` (first line)
 
-Session header written once by the control app when recording starts. Direct
+Session header written once by `telemetry-ui/` when recording starts. Direct
 firmware serial captures omit this record.
 
 | Field | Type | Meaning |
@@ -60,7 +60,7 @@ firmware serial captures omit this record.
 | `type` | string | `"meta"`. |
 | `ts_ms` | number | Recording start, epoch ms. |
 | `schema_version` | number | This schema's version (start at `1`). |
-| `app_version` | string | Control-app build identifier. |
+| `app_version` | string | Telemetry UI build identifier. |
 | `firmware_build` | string | Connected node's firmware build string, if known. |
 | `node_id` | number | Connected node id. |
 | `node_name` | string | Connected node name (may be `""`). |

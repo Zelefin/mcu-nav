@@ -628,7 +628,7 @@ export function App() {
             <KeyValue label="Source" value={snapshot?.src ?? DASH} />
             <KeyValue label="Reject" value={snapshot?.reject ?? DASH} />
             <KeyValue label="Position" value={formatPosition(snapshot)} />
-            <KeyValue label="GPS" value={lastGps ? "on (local GNSS)" : "off (trilateration)"} />
+            <KeyValue label="GPS use" value={lastGps ? "allowed (local GNSS)" : "disabled (radio nav)"} />
             {SHOW_MOCK_CONTROLS ? <KeyValue label="Mock peers" value={lastMock ? "on" : "off"} /> : null}
 
             <div className="form-row">
@@ -659,9 +659,13 @@ export function App() {
               </button>
             </div>
             <div className={SHOW_MOCK_CONTROLS ? "form-row two" : "form-row single-action"}>
-              <button onClick={() => void sendCommand({ cmd: "gps", enabled: !lastGps })} disabled={!connected}>
+              <button
+                className={lastGps ? "toggle-active" : ""}
+                onClick={() => void sendCommand({ cmd: "gps", enabled: !lastGps })}
+                disabled={!connected}
+              >
                 <Satellite size={15} aria-hidden="true" />
-                GPS
+                {lastGps ? "Disable GPS use" : "Allow GPS use"}
               </button>
               {SHOW_MOCK_CONTROLS ? (
                 <button onClick={() => void sendCommand({ cmd: "mock", enabled: !lastMock })} disabled={!connected}>

@@ -54,8 +54,10 @@
 - Done: host tests cover valid/invalid fixes, malformed input, checksum errors,
   stream recovery, overlong sentences, direct GNSS solution, and forced-denied
   behavior.
-- Future: platform UART adapters, UTC/PPS time handling, UBX parsing if needed,
-  and velocity derivation from RMC.
+- Done: ESP32 platform UART adapter stamps portable NMEA samples with system
+  time and injects `NAV_EVT_LOCAL_GNSS_SAMPLE`.
+- Future: UTC/PPS time handling, UBX parsing if needed, and velocity derivation
+  from RMC.
 
 ## Milestone 6: ESP32 Hardware Integration
 
@@ -64,17 +66,20 @@ Current PRD and issue-shaped backlog:
 - `docs/prd_phase2_real_hardware_navigation.md`
 - `docs/issues/phase2_real_hardware_navigation/README.md`
 
-- ESP-IDF GNSS adapter that stamps portable NMEA samples with system time and
-  injects `NAV_EVT_LOCAL_GNSS_SAMPLE`.
-- ESP32 radio task that runs the TDMA scheduler.
-- Telemetry slots use normal SX1280 packet TX/RX and `nav_telemetry` frames.
+- Done: ESP-IDF GNSS adapter that stamps portable NMEA samples with system time
+  and injects `NAV_EVT_LOCAL_GNSS_SAMPLE`.
+- Partial: ESP32 radio task sends best-effort GPS-valid telemetry beacons and
+  receives `nav_telemetry` beacon frames during guarded packet windows.
+- Future: ESP32 radio task that runs the full TDMA scheduler.
+- Future: scheduled telemetry slots use normal SX1280 packet TX/RX and
+  `nav_telemetry` frames.
 - Ranging slots use the SX1280 ranging engine, following the proven
   `examples/esp32s3-ranging` RadioLib workflow.
 - Successful ranging-engine results are injected as `NAV_EVT_RANGE_RESULT`;
   failures are injected as `NAV_EVT_RANGE_FAIL`.
 - Range result/failure payloads move from implicit local `peer_id` semantics to
   explicit `from_id` / `to_id` endpoint pairs so every node can record
-  third-party pair ranges for network health and the control app.
+  third-party pair ranges for network health and the telemetry UI.
 - Local-endpoint ranges update the anchor peer table; third-party pair ranges
   are stored separately until the solver explicitly supports inter-peer
   constraints.

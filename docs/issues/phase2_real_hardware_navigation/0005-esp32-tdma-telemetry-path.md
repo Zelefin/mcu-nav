@@ -16,7 +16,7 @@ periods, received radio frames decode into core peer telemetry events.
       telemetry events into the core.
 - [ ] RSSI/SNR from received packets are stored as receive diagnostics, not as
       peer-reported telemetry.
-- [ ] The peer table and control app update from real received beacon data.
+- [ ] The peer table and telemetry UI update from real received beacon data.
 - [ ] Bad or unsupported radio frames are rejected without disrupting the node.
 - [ ] Host codec tests and at least one two-node hardware telemetry test pass.
 

@@ -19,17 +19,17 @@ work.
 - Added a distance-only SX1280 ranging PoC in the root ESP32 firmware: each node
   alternates between addressed slave listening and active master scans to
   measure single-hop links without GNSS.
-- Added a persisted `node_id` control command and control-app field so one
+- Added a persisted `node_id` control command and telemetry-UI field so one
   firmware image per board type can be assigned node IDs `0..3` at runtime.
-- Added a control-app distance observation table that combines peer snapshots
+- Added a telemetry-UI distance observation table that combines peer snapshots
   with parsed `range_result` serial logs from the connected node.
-- Added a telemetry-discovered distance-only control-app view for observed node
+- Added a telemetry-discovered distance-only telemetry-UI view for observed node
   pairs and peer rows, with GPS-derived fields rendered as `—` while GNSS
   telemetry is absent.
-- Added best-effort ESP32 range-report broadcasts so a control app connected to
+- Added best-effort ESP32 range-report broadcasts so the telemetry UI connected to
   one node can discover pair observations measured by other nodes as
   `source=air_report` diagnostics.
-- Added a control-app node-name table that caches labels for nodes `0..3` and
+- Added a telemetry-UI node-name table that caches labels for nodes `0..3` and
   persists the connected node's name through the existing NVS-backed name
   command.
 - Added on-demand OTA debug telemetry: `DEBUG_ENABLE` broadcasts keep peers in
@@ -58,16 +58,15 @@ work.
   single-hop ranging discovery loop for current hardware bring-up.
 - Switched the ESP32-S3 DevKitC default console to primary USB Serial/JTAG so
   `/dev/cu.usbmodem*` supports both snapshot output and inbound control JSON.
-- Disabled GPS and compass runtime health tasks for the distance-only ESP32
-  firmware slice; serial health now reports `GPS=DISABLED` and
-  `COMPASS=DISABLED` instead of peripheral failures.
-- Changed the control-app distance table to render all pair combinations from
+- Changed the ESP32 GPS UART path to feed the portable NMEA parser and
+  navigation core when GPS is connected; boards without GPS still range.
+- Changed the telemetry-UI distance table to render all pair combinations from
   discovered nodes, mark missing observations explicitly, and render absent
   numeric diagnostics as `—` instead of `0.0`.
-- Changed the control-app to display failed SX1280 `uncorrected_m` diagnostics
+- Changed the telemetry UI to display failed SX1280 `uncorrected_m` diagnostics
   as red distance values for `invalid distance` bring-up cases, while valid
   ranges remain green.
-- Reflowed the control-app distance and peer tables to fit without horizontal
+- Reflowed the telemetry-UI distance and peer tables to fit without horizontal
   scrolling, with range failure notes exposed as an info icon beside non-ok
   distance states.
 - Changed repository-root firmware serial output from bare snapshots and raw
@@ -79,7 +78,7 @@ work.
 ### Protocol
 
 - Documented that real TDMA range payloads must carry `from_id` and `to_id` so
-  third-party pair ranges can appear in the control app without becoming local
+  third-party pair ranges can appear in the telemetry UI without becoming local
   anchor distances.
 - Documented the SX1280 ranging engine as the required source of node-to-node
   distance measurements; RSSI, SNR, packet timing, and host round trips remain
@@ -94,7 +93,7 @@ work.
   local-to-peer replay data from the planned endpoint-bearing TDMA contract.
 - Documented that the first Phase 2 step is done by one person and cannot be
   parallelized until all four ESP32 boards participate in SX1280 ranging smoke,
-  GNSS/NMEA evidence is captured, GPS is disabled through the control app, and
+  GNSS/NMEA evidence is captured, GPS is disabled through the telemetry UI, and
   real trilateration fallback is demonstrated.
 - Documented that the current distance-only firmware slice is ranging evidence
   only and does not complete GNSS/trilateration acceptance.
@@ -108,6 +107,6 @@ work.
 - No replay fixture migration is required for the distance-only firmware and
   control-channel changes. The future `from_id` / `to_id` implementation must
   update C structs, telemetry codec, replay CSV schema, fixtures, serial JSON,
-  control app, and tests in one coordinated change.
+  telemetry UI, and tests in one coordinated change.
 - Removed the obsolete root planning checklist after migrating Phase 2 planning
   into PRD and issue-shaped docs.

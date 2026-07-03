@@ -15,6 +15,8 @@ typedef struct {
     uint32_t packet_seq;
     uint16_t last_range_request_id;
     nav_position_t position;
+    nav_position_t range_position;
+    uint32_t range_position_timestamp_ms;
     nav_velocity_t velocity;
     nav_gnss_fix_type_t fix_type;
     bool gnss_valid;
@@ -26,6 +28,7 @@ typedef struct {
     uint32_t range_mm;
     uint32_t range_sigma_mm;
     bool range_valid;
+    bool range_position_valid;
     int16_t rssi_dbm;
     int16_t snr_db;
     float packet_loss_estimate;

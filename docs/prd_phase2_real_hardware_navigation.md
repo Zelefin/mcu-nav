@@ -2,10 +2,10 @@
 
 ## Problem Statement
 
-The project has a portable navigation core, replay path, simulator, control app,
+The project has a portable navigation core, replay path, simulator, telemetry UI,
 mock peer source, NMEA parser, and initial ESP32 board bring-up code. The next
 problem is proving that the navigation node can use real ESP32 hardware,
-SX1280 ranging, GNSS input, and the control app to produce a real radio
+SX1280 ranging, GNSS input, and the telemetry UI to produce a real radio
 navigation fallback instead of relying on `nav_mock`.
 
 The first step cannot be parallelized. One person must produce a Working PoC
@@ -21,7 +21,7 @@ Create a serial first milestone that proves the available hardware end to end:
 - two `nodemcu-32s` nodes,
 - SX1280 initialization and ranging smoke evidence involving all four nodes,
 - GNSS/NMEA input evidence from GPS-equipped nodes,
-- control-app GPS disable on one node,
+- telemetry-UI GPS disable on one node,
 - trilateration fallback from real peer telemetry, fresh ranges, and local
   altitude.
 
@@ -38,7 +38,7 @@ criteria, expected tests, and documentation updates.
 
 The long-term outcome is an ESP32 navigation node where real driver data enters
 the portable core through events, snapshots/logs leave the core, pair ranges are
-visible in the control app, and a later NMEA output abstraction can emit a
+visible in the telemetry UI, and a later NMEA output abstraction can emit a
 GPS-like stream for an external consumer without owning flight-controller
 integration.
 
@@ -58,7 +58,7 @@ integration.
 5. As a hardware bring-up operator, I want GNSS/NMEA input evidence from GPS
    boards, so that the ESP32 GNSS adapter can be built against proven wiring.
 6. As a hardware bring-up operator, I want to disable GPS on one node from the
-   control app, so that forced radio navigation can be verified through the same
+   telemetry UI, so that forced radio navigation can be verified through the same
    operator path used during demos.
 7. As a navigation developer, I want the GPS-disabled node to fall back to radio
    navigation, so that GPS-denied behavior is proven on real boards.
@@ -74,9 +74,9 @@ integration.
 12. As a radio developer, I want SX1280 ranging slots to use the hardware
     ranging engine, so that distance is not estimated from RSSI, packet timing,
     or host round trips.
-13. As a control-app user, I want to see pair ranges between nodes, so that I
+13. As a telemetry-UI user, I want to see pair ranges between nodes, so that I
     can diagnose network health from one connected node.
-14. As a control-app user, I want third-party pair ranges to be displayed
+14. As a telemetry-UI user, I want third-party pair ranges to be displayed
     without making them local anchor distances, so that diagnostics do not
     corrupt the solver inputs.
 15. As a replay user, I want endpoint-bearing range events in replay fixtures,
@@ -100,7 +100,7 @@ integration.
 
 - The Hardware integration gate is a serial blocker. No parallel contribution
   lanes open until the Working PoC proves four ESP32 boards, SX1280 ranging
-  smoke, GNSS/NMEA input, control-app GPS disable, and trilateration fallback.
+  smoke, GNSS/NMEA input, telemetry-UI GPS disable, and trilateration fallback.
 - The Working PoC is not production readiness. It is the first verified
   end-to-end ESP32 setup that removes the largest hardware uncertainty.
 - The supported main hardware path is two `esp32-s3-devkitc-1` nodes and two
@@ -113,9 +113,9 @@ integration.
   rather than mutating core state directly.
 - The GNSS adapter feeds UART bytes through the portable NMEA parser, stamps
   emitted samples with system time, and injects `NAV_EVT_LOCAL_GNSS_SAMPLE`.
-- GPS disable from the control app must be observable in the core outcome. When
+- GPS disable from the telemetry UI must be observable in the core outcome. When
   GPS is disabled or forced-denied, local GNSS must not become the solution
-  source.
+  source or be advertised as this node's anchor telemetry.
 - Telemetry TX uses the existing beacon encoder. Telemetry RX uses the existing
   decoder and injects decoded peer telemetry into the core.
 - Ranging slots use the SX1280 ranging engine. RSSI/SNR are diagnostics only and
@@ -124,7 +124,7 @@ integration.
   endpoints before hardware TDMA ranging is treated as the air/control contract.
 - Local-endpoint ranges may update the existing anchor peer table. Third-party
   pair ranges are stored separately for network health, replay, logs, and the
-  control app.
+  telemetry UI.
 - `packet_seq` remains beacon sequence. `request_id` remains ranging attempt
   correlation. `range_fail_reason` remains radio-layer failure. `reject_reason`
   remains navigation-layer rejection.
@@ -139,10 +139,10 @@ integration.
 ## Testing Decisions
 
 - The highest-value test seam is the externally visible event/snapshot/log path:
-  replay inputs, decoded radio/GNSS events, control-app JSON, and hardware logs.
+  replay inputs, decoded radio/GNSS events, telemetry-UI JSON, and hardware logs.
 - Gate 0 acceptance requires a hardware evidence matrix: board identity, flash
   success, boot status, SX1280 init, per-node ranging participation,
-  GNSS/NMEA evidence, control app GPS-disable evidence, and radio navigation
+  GNSS/NMEA evidence, telemetry-UI GPS-disable evidence, and radio navigation
   fallback evidence.
 - Host tests remain deterministic. Replay fixtures must be updated in the same
   change as event schema or data-model changes.
@@ -155,7 +155,7 @@ integration.
   cases. Third-party observations must be visible as network health and must not
   make peers usable as local anchors.
 - Radio navigation acceptance is tested on real boards by disabling GPS through
-  the control app and observing a `RADIO_3D` outcome from real peer telemetry,
+  the telemetry UI and observing a `RADIO_3D` outcome from real peer telemetry,
   fresh SX1280 ranges, and local altitude.
 - NMEA output is tested after radio navigation acceptance with deterministic
   sentence content and checksums, plus an ESP32 UART smoke test.

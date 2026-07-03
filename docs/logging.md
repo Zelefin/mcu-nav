@@ -7,7 +7,7 @@ The repository-root ESP-IDF diagnostic firmware emits logs on the USB-serial
 control channel as typed NDJSON `log` records, one JSON object per line:
 
 ```json
-{"type":"log","ts":1234,"level":"INFO","tag":"SYSTEM","text":"t=1234ms [INFO] [SYSTEM] Health summary: RADIO=OK GPS=DISABLED COMPASS=DISABLED | ..."}
+{"type":"log","ts":1234,"level":"INFO","tag":"SYSTEM","text":"t=1234ms [INFO] [SYSTEM] Health summary: RADIO=OK GPS=OK | radio tx=1 rx=1 gps_bytes=340 gps_sentences=5 gps_fix=3"}
 ```
 
 The `ts` envelope value and the `t=` value embedded in `text` are milliseconds
@@ -107,7 +107,7 @@ endpoints. It also keeps the human-readable message inside a typed `log` record:
 
 `source=air_report` means the connected node heard another node's compact
 best-effort range report over SX1280 packet RX. Those third-party pair ranges
-are network-health/control-app observations only and must not be treated as
+are network-health/telemetry-UI observations only and must not be treated as
 anchor updates for the local solver.
 
 ## Replay Outputs

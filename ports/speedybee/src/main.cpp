@@ -1,10 +1,10 @@
 // SpeedyBee Nano 2.4G (ESP8285 + SX1280) navigation node firmware.
 //
 // Reuses the portable nav core over the Arduino/ESP8266 framework (ESP-IDF is
-// not available on ESP8285). No GPS/compass on this board, so it defaults to
+// not available on ESP8285). No GPS on this board, so it defaults to
 // trilateration and is the ideal target for debugging ranging. Config persists
 // in EEPROM; it speaks the same newline-delimited JSON control protocol over
-// USB-serial as the ESP32 nodes, so the same control-app drives it.
+// USB-serial as the ESP32 nodes, so the same telemetry UI drives it.
 //
 // The default firmware is radio-only: mock peers are compile-gated off so the
 // board participates as a real SX1280 node for distance and debug-telemetry
@@ -31,6 +31,9 @@ namespace {
 
 constexpr uint32_t kBaud = 115200;
 constexpr uint32_t kSnapshotPeriodMs = 500;
+constexpr uint32_t kHardwareTelemetryTtlMs = 3000;
+constexpr uint32_t kHardwareRangeTtlMs = 15000;
+constexpr uint32_t kHardwareLocalAltitudeTtlMs = 2000;
 constexpr size_t kRecordBufMax = 1536;
 constexpr size_t kRangeReportPayloadMax = 224;
 constexpr uint8_t kDefaultNodeId = 0;
@@ -283,6 +286,9 @@ void setPaMode(PaMode mode) {
 
 void initCoreForConfig() {
   nav_config_t cfg = nav_config_default(gConfig.nodeId);
+  cfg.telemetry_ttl_ms = kHardwareTelemetryTtlMs;
+  cfg.range_ttl_ms = kHardwareRangeTtlMs;
+  cfg.local_altitude_ttl_ms = kHardwareLocalAltitudeTtlMs;
   cfg.min_anchor_triangle_area_m2 = 10.0f;
   cfg.degraded_anchor_triangle_area_m2 = 100.0f;
   nav_core_init(&gNav, &cfg);
@@ -567,12 +573,34 @@ void handleDebugEnableFrame(const nav_radio_frame_t &frame, uint32_t now) {
   }
 }
 
-void handleRadioFrame(const uint8_t *payload, uint8_t len, uint32_t now) {
+void handleBeaconFrame(const uint8_t *payload, uint8_t len, uint32_t now, const SX1280::PacketStatus &packetStatus) {
+  nav_event_t event = {};
+  const nav_status_t status = nav_telemetry_decode_event(payload,
+                                                         len,
+                                                         now,
+                                                         packetStatus.rssi_dbm,
+                                                         static_cast<int16_t>(lroundf(packetStatus.snr_db)),
+                                                         &event);
+  if (status != NAV_STATUS_OK || event.type != NAV_EVT_PEER_TELEMETRY_RX) {
+    emitLog(now, "WARN", "RADIO", "beacon decode failed");
+    return;
+  }
+  const uint8_t peerId = event.data.peer_beacon_rx.telemetry.node_id;
+  if (peerId == gConfig.nodeId) {
+    return;
+  }
+  nav_core_handle_event(&gNav, &event);
+}
+
+void handleRadioFrame(const uint8_t *payload, uint8_t len, uint32_t now, const SX1280::PacketStatus &packetStatus) {
   nav_radio_frame_t frame;
   if (nav_radio_decode_frame(payload, len, &frame) != NAV_STATUS_OK) {
     return;
   }
   switch (frame.type) {
+    case NAV_RADIO_MSG_BEACON_RX:
+      handleBeaconFrame(payload, len, now, packetStatus);
+      break;
     case NAV_RADIO_MSG_DEBUG_ENABLE:
       handleDebugEnableFrame(frame, now);
       break;
@@ -636,7 +664,7 @@ void servicePacketRx(uint32_t now, uint32_t windowMs) {
     return;
   }
 
-  handleRadioFrame(payload, len, millis());
+  handleRadioFrame(payload, len, millis(), status);
 }
 
 void transmitDebugEnable(uint32_t now) {

@@ -84,9 +84,15 @@ navigation solution from real peer telemetry, fresh SX1280 ranges, and local
 altitude after local GPS is disabled on one node.
 _Avoid_: Boot self-test, packet-only smoke test
 
+**GPS-disabled node**:
+A node whose local GNSS is not allowed to become its navigation solution or
+advertised anchor telemetry. The node may still read GNSS bytes for diagnostics
+and can still participate in ranging as a distance-only node.
+_Avoid_: GPS-unplugged node, GPS health disabled
+
 **Working PoC**:
 The first verified end-to-end ESP32 setup that passes the hardware integration
-gate and proves real ranging, GNSS input, control-app GPS disable, and
+gate and proves real ranging, GNSS input, telemetry-UI GPS disable, and
 trilateration fallback on the available boards.
 _Avoid_: Final product, parallel planning phase
 

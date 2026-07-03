@@ -10,7 +10,7 @@ stays in `ports/` or future repositories.
 
 - Navigation state machine and solution acceptance/rejection.
 - Peer telemetry and range state.
-- Third-party pair-range observations for network-health/control-app views.
+- Third-party pair-range observations for network-health/telemetry-UI views.
 - Anchor selection and v1 geometry diagnostics.
 - Trilateration adapter using the validated reference project.
 - Structured logs, snapshots, host tests, replay/simulation plans, and docs.

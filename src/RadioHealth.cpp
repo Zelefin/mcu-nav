@@ -35,6 +35,7 @@ constexpr uint32_t kReportRxWindowMs = 45u;
 constexpr uint8_t kReportTxRepeats = 3u;
 constexpr uint32_t kReportTxGapMs = 8u;
 constexpr uint32_t kBestEffortTxGuardMs = 80u;
+constexpr uint32_t kTelemetryBeaconPeriodMs = 1000u;
 constexpr uint32_t kDebugEnablePeriodMs = 1000u;
 constexpr uint16_t kDebugEnableTtlMs = 3000u;
 constexpr uint32_t kNodeQualityReportPeriodMs = 1000u;
@@ -47,8 +48,10 @@ constexpr size_t kRangeReportPayloadMax = 224u;
 
 struct DebugTelemetryState {
   uint32_t remoteDebugActiveUntilMs;
+  uint32_t lastBeaconTxMs;
   uint32_t lastDebugEnableTxMs;
   uint32_t lastNodeQualityTxMs;
+  uint32_t beaconPacketSeq;
   uint32_t nodeQualityPacketSeq;
   uint16_t txFrameSeq;
   bool remoteDebugWasActive;
@@ -359,7 +362,35 @@ void handleNodeQualityFrame(const nav_radio_frame_t &frame, uint8_t nodeId) {
                  static_cast<unsigned long>(report.packet_seq));
 }
 
-void dispatchTypedReport(const uint8_t *payload, size_t payloadLen, uint8_t nodeId, DebugTelemetryState *debugState) {
+void handleBeaconFrame(const uint8_t *payload, size_t payloadLen, uint8_t nodeId, int16_t rssiDbm, int16_t snrDb) {
+  nav_event_t event = {};
+  const nav_status_t status = nav_telemetry_decode_event(payload, payloadLen, nowMs(), rssiDbm, snrDb, &event);
+  if (status != NAV_STATUS_OK || event.type != NAV_EVT_PEER_TELEMETRY_RX) {
+    Logger::warnf("RADIO", "beacon rx=false status=%d", static_cast<int>(status));
+    return;
+  }
+  const uint8_t peerId = event.data.peer_beacon_rx.telemetry.node_id;
+  if (peerId == nodeId) {
+    return;
+  }
+  if (!ControlChannel::handleEvent(&event)) {
+    Logger::warnf("RADIO", "beacon rx=false peer=%u note=\"core rejected\"", static_cast<unsigned>(peerId));
+    return;
+  }
+  Logger::debugf("RADIO",
+                 "beacon rx=true peer=%u heard_by=%u packet_seq=%lu gnss=%u",
+                 static_cast<unsigned>(peerId),
+                 static_cast<unsigned>(nodeId),
+                 static_cast<unsigned long>(event.data.peer_beacon_rx.telemetry.packet_seq),
+                 event.data.peer_beacon_rx.telemetry.gnss_valid ? 1u : 0u);
+}
+
+void dispatchTypedReport(const uint8_t *payload,
+                         size_t payloadLen,
+                         uint8_t nodeId,
+                         int16_t rssiDbm,
+                         int16_t snrDb,
+                         DebugTelemetryState *debugState) {
   nav_radio_frame_t frame;
   const nav_status_t status = nav_radio_decode_frame(payload, payloadLen, &frame);
   if (status != NAV_STATUS_OK) {
@@ -367,6 +398,9 @@ void dispatchTypedReport(const uint8_t *payload, size_t payloadLen, uint8_t node
   }
 
   switch (frame.type) {
+    case NAV_RADIO_MSG_BEACON_RX:
+      handleBeaconFrame(payload, payloadLen, nodeId, rssiDbm, snrDb);
+      break;
     case NAV_RADIO_MSG_DEBUG_ENABLE:
       handleDebugEnableFrame(frame, nodeId, debugState);
       break;
@@ -434,7 +468,36 @@ void serviceReportRx(uint8_t nodeId, uint32_t windowMs, DebugTelemetryState *deb
     return;
   }
 
-  dispatchTypedReport(payload, readLen, nodeId, debugState);
+  const int16_t rssiDbm = static_cast<int16_t>(std::lround(radio.getRSSI()));
+  const int16_t snrDb = static_cast<int16_t>(std::lround(radio.getSNR()));
+  dispatchTypedReport(payload, readLen, nodeId, rssiDbm, snrDb, debugState);
+}
+
+bool broadcastTelemetryBeacon(DebugTelemetryState *debugState, uint32_t now) {
+  if (!debugState) {
+    return false;
+  }
+  if (!periodDue(now, debugState->lastBeaconTxMs, kTelemetryBeaconPeriodMs)) {
+    return false;
+  }
+  debugState->lastBeaconTxMs = now;
+
+  const uint32_t packetSeq = debugState->beaconPacketSeq + 1u;
+  nav_peer_telemetry_t telemetry = {};
+  if (!ControlChannel::getLocalTelemetry(packetSeq, &telemetry)) {
+    return false;
+  }
+  debugState->beaconPacketSeq = packetSeq;
+
+  uint8_t frame[NAV_RADIO_MAX_FRAME_BYTES];
+  size_t frameLen = 0u;
+  const nav_status_t status =
+      nav_telemetry_encode_beacon(&telemetry, ++debugState->txFrameSeq, frame, sizeof(frame), &frameLen);
+  if (status != NAV_STATUS_OK) {
+    Logger::warnf("RADIO", "beacon tx=false status=%d", static_cast<int>(status));
+    return false;
+  }
+  return transmitTypedReport(frame, frameLen, "beacon");
 }
 
 void broadcastDebugEnable(uint8_t nodeId, DebugTelemetryState *debugState) {
@@ -483,6 +546,10 @@ void serviceDebugTelemetryTx(uint8_t nodeId, uint32_t remainingMs, DebugTelemetr
   }
 
   const uint32_t now = nowMs();
+  if (broadcastTelemetryBeacon(debugState, now)) {
+    return;
+  }
+
   if (ControlChannel::isDebugEnabled() && periodDue(now, debugState->lastDebugEnableTxMs, kDebugEnablePeriodMs)) {
     debugState->lastDebugEnableTxMs = now;
     broadcastDebugEnable(nodeId, debugState);
@@ -880,7 +947,7 @@ extern "C" void RadioHealthTask(void *) {
     if (!isValidNodeId(config.nodeId)) {
       if ((nowMs() - lastConfigLogMs) > 2000u) {
         lastConfigLogMs = nowMs();
-        Logger::warnf("RANGE", "invalid node_id=%u; set node id 0..3 in control app", static_cast<unsigned>(config.nodeId));
+        Logger::warnf("RANGE", "invalid node_id=%u; set node id 0..3 in telemetry UI", static_cast<unsigned>(config.nodeId));
       }
       delayMs(kConfigPollMs);
       continue;

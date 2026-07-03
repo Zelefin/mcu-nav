@@ -5,7 +5,7 @@
 
 #include "nav/nav_events.h"
 
-// USB-serial control channel to the browser control-app. Speaks newline
+// USB-serial control channel to the browser telemetry UI. Speaks newline
 // delimited JSON: it streams a navigation snapshot line periodically and applies
 // inbound command lines (rename node, GPS on/off, mock on/off, set altitude),
 // persisting changes to NVS. Runs the navigation core and, when mock is enabled,
@@ -22,6 +22,16 @@ bool getConfig(NodeConfig *out);
 // Runtime-only debug telemetry flag. It is intentionally separate from
 // NodeConfig/NVS so debug mode always boots off.
 bool isDebugEnabled();
+
+// Returns whether local GNSS is allowed to drive this node's solution. When
+// false, the UART may still be read for diagnostics but this node is
+// GPS-denied and does not advertise itself as a GNSS anchor.
+bool isGpsEnabled();
+
+// Builds this node's GNSS-valid telemetry beacon for over-the-air anchor
+// discovery. Returns false when GPS is disabled, absent, or not yet usable; in
+// that state the node remains distance-only.
+bool getLocalTelemetry(uint32_t packetSeq, nav_peer_telemetry_t *out);
 
 // Builds this node's latest diagnostics-only quality report for OTA debug
 // telemetry. Safe to call from the radio task; does not mutate solver state.

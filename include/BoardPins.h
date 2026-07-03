@@ -37,12 +37,6 @@
 #ifndef PIN_GPS_TX
 #error "PIN_GPS_TX must be supplied by platformio.ini build_flags"
 #endif
-#ifndef PIN_I2C_SDA
-#error "PIN_I2C_SDA must be supplied by platformio.ini build_flags"
-#endif
-#ifndef PIN_I2C_SCL
-#error "PIN_I2C_SCL must be supplied by platformio.ini build_flags"
-#endif
 
 #ifndef PIN_NOT_CONNECTED
 #define PIN_NOT_CONNECTED (-1)
@@ -103,7 +97,4 @@ static constexpr int loraDio3 = PIN_LORA_DIO3;
 
 static constexpr int gpsRx = PIN_GPS_RX;
 static constexpr int gpsTx = PIN_GPS_TX;
-
-static constexpr int i2cSda = PIN_I2C_SDA;
-static constexpr int i2cScl = PIN_I2C_SCL;
 }  // namespace BoardPins
