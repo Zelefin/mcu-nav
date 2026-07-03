@@ -33,6 +33,7 @@ import sampleCapture from "../fixtures/sample_capture.ndjson?raw";
 const BAUD_RATE = 115200;
 const NODE_NAMES_KEY = "nav-mcu.nodeNames.v1";
 const DASH = "-";
+const SHOW_MOCK_CONTROLS = import.meta.env.VITE_NAV_MCU_DEBUG_UI === "true";
 
 interface Observation {
   aId: number;
@@ -121,6 +122,15 @@ export function App() {
     () => Array.from(discovered).sort((a, b) => a - b),
     [discovered],
   );
+
+  const peerSnapshotIds = useMemo(() => {
+    if (!isNodeId(currentNodeId)) return discoveredIds;
+    return [...discoveredIds].sort((a, b) => {
+      if (a === currentNodeId) return -1;
+      if (b === currentNodeId) return 1;
+      return a - b;
+    });
+  }, [currentNodeId, discoveredIds]);
 
   const peerById = useMemo(() => {
     const peers = new Map<number, SnapshotPeer>();
@@ -506,34 +516,6 @@ export function App() {
     [discoveredIds, nodeNames],
   );
 
-  const distanceRows = useMemo(() => {
-    const rows = new Map(observations);
-    for (let i = 0; i < discoveredIds.length; i++) {
-      for (let j = i + 1; j < discoveredIds.length; j++) {
-        const key = pairKey(discoveredIds[i], discoveredIds[j]);
-        if (!rows.has(key)) {
-          rows.set(key, {
-            aId: discoveredIds[i],
-            bId: discoveredIds[j],
-            fromId: null,
-            toId: null,
-            requestId: null,
-            rangeMm: null,
-            rangeSigmaMm: null,
-            rssi: null,
-            snr: null,
-            failReason: null,
-            source: "",
-            state: "missing",
-            note: "no observation",
-            updatedAt: null,
-          });
-        }
-      }
-    }
-    return Array.from(rows.values()).sort((a, b) => a.aId - b.aId || a.bId - b.bId);
-  }, [discoveredIds, observations]);
-
   const qualityRows = useMemo(
     () => Array.from(nodeQualities.values()).sort((a, b) => a.record.node_id - b.record.node_id),
     [nodeQualities],
@@ -668,7 +650,7 @@ export function App() {
             <KeyValue label="Reject" value={snapshot?.reject ?? DASH} />
             <KeyValue label="Position" value={formatPosition(snapshot)} />
             <KeyValue label="GPS" value={lastGps ? "on (local GNSS)" : "off (trilateration)"} />
-            <KeyValue label="Mock peers" value={lastMock ? "on" : "off"} />
+            {SHOW_MOCK_CONTROLS ? <KeyValue label="Mock peers" value={lastMock ? "on" : "off"} /> : null}
 
             <div className="form-row">
               <input
@@ -697,15 +679,17 @@ export function App() {
                 Set ID
               </button>
             </div>
-            <div className="form-row two">
+            <div className={SHOW_MOCK_CONTROLS ? "form-row two" : "form-row single-action"}>
               <button onClick={() => void sendCommand({ cmd: "gps", enabled: !lastGps })} disabled={!connected}>
                 <Satellite size={15} aria-hidden="true" />
                 GPS
               </button>
-              <button onClick={() => void sendCommand({ cmd: "mock", enabled: !lastMock })} disabled={!connected}>
-                <FlaskConical size={15} aria-hidden="true" />
-                Mock
-              </button>
+              {SHOW_MOCK_CONTROLS ? (
+                <button onClick={() => void sendCommand({ cmd: "mock", enabled: !lastMock })} disabled={!connected}>
+                  <FlaskConical size={15} aria-hidden="true" />
+                  Mock
+                </button>
+              ) : null}
             </div>
             <div className="form-row">
               <input
@@ -851,62 +835,6 @@ export function App() {
           </section>
 
           <section className="panel">
-            <h2>Distance Observations</h2>
-            <table className="data-table distance-table" aria-label="Distance observations">
-              <thead>
-                <tr>
-                  <th>Pair</th>
-                  <th>State</th>
-                  <th>Distance</th>
-                  <th>Request</th>
-                  <th>Age</th>
-                  <th>RSSI</th>
-                  <th>SNR</th>
-                </tr>
-              </thead>
-              <tbody>
-                {distanceRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="empty-cell">
-                      No range observations yet.
-                    </td>
-                  </tr>
-                ) : (
-                  distanceRows.map((obs) => {
-                    const ageMs = obs.updatedAt == null ? null : now - obs.updatedAt;
-                    const displayState = ageMs != null && ageMs > 5000 && obs.state === "ok" ? "stale" : obs.state;
-                    return (
-                      <tr key={`${obs.aId}:${obs.bId}`} className={displayState === "ok" ? "" : "stale-row"}>
-                        <td data-label="Pair" className="text-cell">
-                          {pairLabel(obs.aId, obs.bId, labelFor)}
-                        </td>
-                        <td data-label="State" className={stateClass(displayState)}>
-                          <span title={obs.note}>{displayState}</span>
-                        </td>
-                        <td data-label="Distance" className={`mono num ${displayState === "ok" ? "ok" : ""}`}>
-                          {distanceText(obs)}
-                        </td>
-                        <td data-label="Request" className="mono num">
-                          {obs.requestId ?? DASH}
-                        </td>
-                        <td data-label="Age" className="mono num">
-                          {ageMs == null ? DASH : formatAge(ageMs)}
-                        </td>
-                        <td data-label="RSSI" className="mono num">
-                          {formatSigned(obs.rssi, 1)}
-                        </td>
-                        <td data-label="SNR" className="mono num">
-                          {formatSigned(obs.snr, 1)}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </section>
-
-          <section className="panel">
             <h2>Peer Snapshot</h2>
             <table className="data-table peer-table" aria-label="Peer snapshot">
               <thead>
@@ -923,14 +851,14 @@ export function App() {
                 </tr>
               </thead>
               <tbody>
-                {discoveredIds.length === 0 ? (
+                {peerSnapshotIds.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="empty-cell">
                       No discovered nodes yet.
                     </td>
                   </tr>
                 ) : (
-                  discoveredIds.map((id) => {
+                  peerSnapshotIds.map((id) => {
                     const peer = peerById.get(id);
                     const obs = currentNodeId == null || id === currentNodeId ? null : observations.get(pairKey(currentNodeId, id));
                     const obsFresh = !!obs?.updatedAt && obs.state === "ok" && now - obs.updatedAt <= 5000;
@@ -1073,11 +1001,6 @@ function pairKey(aId: number, bId: number): string {
   return `${left}:${right}`;
 }
 
-function pairLabel(aId: number, bId: number, labelFor: (id: number) => string): string {
-  const [left, right] = orderedPair(aId, bId);
-  return `${labelFor(left)} #${left} <-> ${labelFor(right)} #${right}`;
-}
-
 function hasNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -1111,17 +1034,6 @@ function formatPosition(snapshot: SnapshotPayload | null): string {
     return DASH;
   }
   return `${formatDeg(snapshot.pos.lat_e7)}, ${formatDeg(snapshot.pos.lon_e7)} @ ${formatMetersFromMm(snapshot.pos.alt_mm)}`;
-}
-
-function distanceText(obs: Observation): string {
-  if (obs.state === "ok" && hasNumber(obs.rangeMm)) return formatMetersFromMm(obs.rangeMm);
-  return DASH;
-}
-
-function stateClass(state: Observation["state"] | "stale"): string {
-  if (state === "ok") return "ok";
-  if (state === "stale" || state === "missing") return "warn";
-  return "bad";
 }
 
 function isWeakQuality(record: NodeQualityRecord): boolean {

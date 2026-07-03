@@ -285,6 +285,10 @@ th {
   grid-template-columns: 1fr 1fr;
 }
 
+.form-row.single-action {
+  grid-template-columns: 1fr;
+}
+
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
@@ -331,21 +335,6 @@ th {
 
 .data-table .text-cell {
   text-align: left;
-}
-
-.distance-table th:nth-child(1),
-.distance-table td:nth-child(1) {
-  width: 31%;
-}
-
-.distance-table th:nth-child(2),
-.distance-table td:nth-child(2) {
-  width: 12%;
-}
-
-.distance-table th:nth-child(3),
-.distance-table td:nth-child(3) {
-  width: 14%;
 }
 
 .peer-table th:nth-child(1),

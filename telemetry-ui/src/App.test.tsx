@@ -10,8 +10,8 @@ const twoNodeCaptureWithExtraAnchors = [
     schema_version: 1,
     app_version: "react-0.1.0",
     firmware_build: "test",
-    node_id: 1,
-    node_name: "node-mcu",
+    node_id: 2,
+    node_name: "speedybee",
     debug: true,
   },
   {
@@ -20,7 +20,7 @@ const twoNodeCaptureWithExtraAnchors = [
     ts: 100,
     data: {
       t: 100,
-      node: { id: 1, name: "node-mcu", gps: false, mock: false },
+      node: { id: 2, name: "speedybee", gps: false, mock: false },
       mode: "NO_NAV_SOLUTION",
       sol: "NONE",
       src: "NONE",
@@ -28,8 +28,8 @@ const twoNodeCaptureWithExtraAnchors = [
       pos: { lat_e7: 0, lon_e7: 0, alt_mm: 0 },
       num_anchors: 0,
       peers: [
-        { id: 1, gnss: false, lat_e7: 0, lon_e7: 0, alt_mm: 0, range_valid: false },
         { id: 2, gnss: false, lat_e7: 0, lon_e7: 0, alt_mm: 0, range_valid: false },
+        { id: 1, gnss: false, lat_e7: 0, lon_e7: 0, alt_mm: 0, range_valid: false },
       ],
     },
   },
@@ -37,7 +37,7 @@ const twoNodeCaptureWithExtraAnchors = [
     type: "node_quality",
     ts_ms: 1751539200800,
     ts: 120,
-    node_id: 1,
+    node_id: 2,
     origin: "local",
     age_ms: 0,
     data: {
@@ -49,7 +49,7 @@ const twoNodeCaptureWithExtraAnchors = [
       geometry_score: 0,
       total_quality: 0,
       num_anchors: 3,
-      anchor_ids: [0, 2, 3],
+      anchor_ids: [0, 1, 3],
       fix_type: "NONE",
       satellites: 0,
       hdop_centi: 0,
@@ -69,7 +69,7 @@ vi.mock("../fixtures/sample_capture.ndjson?raw", () => ({
   default: twoNodeCaptureWithExtraAnchors,
 }));
 
-describe("App network discovery", () => {
+describe("App network view", () => {
   beforeEach(() => {
     localStorage.clear();
   });
@@ -79,19 +79,23 @@ describe("App network discovery", () => {
     vi.clearAllMocks();
   });
 
-  it("does not create distance rows for node_quality anchor_ids that were not received as nodes", async () => {
+  it("hides mock controls, removes distance observations, and orders the current node first", async () => {
     const { App } = await import("./App");
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: /sample/i }));
 
-    const distanceTable = await screen.findByRole("table", { name: /distance observations/i });
+    const peerTable = await screen.findByRole("table", { name: /peer snapshot/i });
 
     await waitFor(() => {
-      expect(within(distanceTable).queryByText(/node-0/)).toBeNull();
-      expect(within(distanceTable).queryByText(/node-3/)).toBeNull();
-      expect(within(distanceTable).queryByText(/node-mcu #1 <-> node-mcu #1/)).toBeNull();
-      expect(within(distanceTable).getByText(/node-mcu #1 <-> node-2 #2/)).toBeTruthy();
+      expect(screen.queryByRole("table", { name: /distance observations/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /mock/i })).toBeNull();
+      expect(screen.queryByText(/mock peers/i)).toBeNull();
+      expect(within(peerTable).queryByText(/node-0/)).toBeNull();
+      expect(within(peerTable).queryByText(/node-3/)).toBeNull();
+      const rows = within(peerTable).getAllByRole("row");
+      expect(rows[1].textContent).toContain("speedybee #2 (this)");
+      expect(rows[2].textContent).toContain("node-1 #1");
     });
   });
 });
