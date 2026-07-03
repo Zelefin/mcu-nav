@@ -4,11 +4,13 @@ import {
   Circle,
   FlaskConical,
   HardDrive,
+  Play,
   PlugZap,
   RotateCcw,
   Save,
   Satellite,
   Square,
+  Upload,
   Unplug,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -21,10 +23,12 @@ import {
   type SnapshotPeer,
   isNodeId,
   buildMetaRecord,
+  parseNdjsonLine,
   parseFirmwareBuild,
   parseInboundLine,
   withBrowserTimestamp,
 } from "./lib/controlRecords";
+import sampleCapture from "../fixtures/sample_capture.ndjson?raw";
 
 const BAUD_RATE = 115200;
 const NODE_NAMES_KEY = "nav-mcu.nodeNames.v1";
@@ -338,6 +342,64 @@ export function App() {
     [addLog, appendCaptureRecord, ingestRecord],
   );
 
+  const ingestCaptureText = useCallback(
+    (text: string, sourceName: string) => {
+      let count = 0;
+      let skipped = 0;
+      for (const line of text.split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        try {
+          const record = parseNdjsonLine(line);
+          if (!record) {
+            skipped += 1;
+            continue;
+          }
+          if (record.type === "meta") {
+            setFirmwareBuild(record.firmware_build ?? "");
+            if (isNodeId(record.node_id)) {
+              setCurrentNodeId(record.node_id);
+              setNodeIdDraft(String(record.node_id));
+              discoverNodes([record.node_id]);
+              rememberNodeName(record.node_id, record.node_name);
+            }
+          } else {
+            ingestRecord(record);
+            count += 1;
+          }
+        } catch {
+          skipped += 1;
+        }
+      }
+      addLog({
+        text: `[capture loaded: ${sourceName}, ${count} records${skipped ? `, ${skipped} skipped` : ""}]`,
+        bad: skipped > 0,
+      });
+    },
+    [addLog, discoverNodes, ingestRecord, rememberNodeName],
+  );
+
+  const openCapture = useCallback(async () => {
+    if (!window.showOpenFilePicker) return;
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        multiple: false,
+        types: [
+          {
+            description: "NDJSON capture",
+            accept: { "application/x-ndjson": [".ndjson"], "application/json": [".jsonl"] },
+          },
+        ],
+      });
+      if (!handle) return;
+      const file = await handle.getFile();
+      ingestCaptureText(await file.text(), file.name);
+    } catch (error) {
+      if ((error as Error).name !== "AbortError") {
+        addLog({ text: `open capture failed: ${(error as Error).message}`, bad: true });
+      }
+    }
+  }, [addLog, ingestCaptureText]);
+
   const sendCommand = useCallback(async (obj: Record<string, unknown>) => {
     const writer = writerRef.current;
     if (!writer) return;
@@ -543,6 +605,14 @@ export function App() {
           <button onClick={disconnect} disabled={!connected}>
             <Unplug size={16} aria-hidden="true" />
             Disconnect
+          </button>
+          <button onClick={() => ingestCaptureText(sampleCapture, "sample_capture.ndjson")}>
+            <Play size={15} aria-hidden="true" />
+            Sample
+          </button>
+          <button onClick={openCapture} disabled={!fileSystemAccessSupported}>
+            <Upload size={15} aria-hidden="true" />
+            Open
           </button>
           <button className={debugEnabled ? "toggle-active" : ""} onClick={toggleDebug} disabled={!connected}>
             <Bug size={16} aria-hidden="true" />
