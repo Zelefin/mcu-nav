@@ -44,6 +44,11 @@ work.
   criteria for the Working PoC, endpoint-bearing ranges, pair-range network
   view, GNSS adapter, ESP32 TDMA/ranging paths, radio navigation acceptance,
   NMEA output, and optional SpeedyBee debug work.
+- Added ADR 0006 to record that ESP32 GNSS input is NMEA-only and that the
+  abandoned UBX experiment is removed.
+- Added a GPS trilateration bring-up runbook for the four-node issue 0007 radio
+  navigation acceptance scenario, explicitly marked not executed in this
+  session.
 
 ### Changed
 
@@ -74,6 +79,14 @@ work.
 - Changed the SpeedyBee firmware serial output to the same typed NDJSON
   `snapshot` / `node_quality` / `log` envelope and migrate stale node id `5`
   EEPROM config to a valid mock-scene node id.
+- Finalized the ESP32 GPS-enabled navigation path as NMEA-only local GNSS at
+  115200 baud, with local fixes producing `LOCAL_GNSS` snapshots and GNSS-valid
+  beacon telemetry when GPS use is enabled.
+
+### Removed
+
+- Removed the abandoned UBX parser source, public header, documentation, and
+  parser test that were never referenced by the host or PlatformIO builds.
 
 ### Protocol
 

@@ -82,6 +82,9 @@ unconnected on the NodeMCU-32S wiring.
 | VCC | 3.3 V preferred |
 | GND | GND |
 
+The M100-5883 onboard compass is intentionally unused; this firmware uses only
+the GPS UART pins above.
+
 ### ESP32-S3-DEVKITC-1 Wiring
 
 #### E28-2G4M12SX / SX128x
@@ -312,8 +315,8 @@ board ID from your installed PlatformIO version.
   `solution.csv`, `peers.csv`, and `compare_report.json`.
 - Portable NMEA parser converts `$GPGGA`/`$GNGGA` and `$GPRMC`/`$GNRMC` byte
   streams into `nav_gnss_sample_t` for `NAV_EVT_LOCAL_GNSS_SAMPLE`.
-- Scheduled TDMA telemetry/ranging, endpoint-bearing pair range storage, UBX
-  parsing, and FC/MAVLink output remain future work.
+- Scheduled TDMA telemetry/ranging, endpoint-bearing pair range storage, and
+  FC/MAVLink output remain future work.
 
 ## Build And Test
 
@@ -444,6 +447,7 @@ cmake -S . -B build && cmake --build build
 - [State machine](docs/state_machine.md)
 - [Logging](docs/logging.md)
 - [GNSS NMEA](docs/gnss_nmea.md)
+- [GPS trilateration bring-up](docs/gps_trilateration_bringup.md)
 - [Debug playbook](docs/debug_playbook.md)
 - [Radio protocol](docs/radio_protocol.md)
 - [Replay CSV](docs/replay_csv.md)

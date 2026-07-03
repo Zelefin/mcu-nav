@@ -133,7 +133,7 @@ void printRecord(const char *record) {
 }
 
 // Default debug scene so a lone board has something to trilaterate against when
-// mock is enabled. Real peers arrive from the radio driver (future work).
+// mock is enabled. Real peers arrive from the radio driver.
 void seedMock() {
   nav_mock_init(&gMock);
   const nav_position_t localTruth = {504520000, 305260000, 183500};
