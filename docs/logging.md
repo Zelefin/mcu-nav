@@ -3,14 +3,15 @@
 The portable core never prints directly. It emits structured text through
 `nav_logger_t`; ports decide where the records go.
 
-The repository-root ESP-IDF diagnostic firmware logs directly to the configured
-ESP-IDF console with one complete line per write:
+The repository-root ESP-IDF diagnostic firmware emits logs on the USB-serial
+control channel as typed NDJSON `log` records, one JSON object per line:
 
-```text
-t=1234ms [INFO] [SYSTEM] Health summary: RADIO=OK GPS=DISABLED COMPASS=DISABLED | ...
+```json
+{"type":"log","ts":1234,"level":"INFO","tag":"SYSTEM","text":"t=1234ms [INFO] [SYSTEM] Health summary: RADIO=OK GPS=DISABLED COMPASS=DISABLED | ..."}
 ```
 
-The `t=` value is milliseconds elapsed since `Logger::begin()`.
+The `ts` envelope value and the `t=` value embedded in `text` are milliseconds
+elapsed since `Logger::begin()`.
 
 ## Categories And Levels
 
@@ -95,11 +96,13 @@ t=1000 level=INFO cat=RANGE event=range_update peer=2 request_id=77 range_mm=621
 ```
 
 Current replay/core range events are local-to-peer, but the ESP32 distance-only
-firmware logs hardware attempts with explicit `from` and `to` endpoints:
+firmware emits typed `range` records with explicit `from_id` and `to_id`
+endpoints. It also keeps the human-readable message inside a typed `log` record:
 
-```text
-t=43945ms [WARN] [RANGE] range_result ok=false from=1 to=2 request_id=13 range_fail_reason=RANGING_ENGINE_ERROR raw_reg=-69 uncorrected_m=-1.55 elapsed_ms=14 irq=0x0200 flags="master_result_valid" note="invalid distance"
-t=45403ms [INFO] [RANGE] range_result ok=false from=2 to=0 request_id=5 range_fail_reason=TIMEOUT elapsed_ms=359 error=-901 note="ranging timeout" source=air_report heard_by=1 report_rssi_dbm=-53.0 report_snr_db=13.5
+```json
+{"type":"range","ts":43945,"from_id":1,"to_id":2,"request_id":13,"ok":false,"range_fail_reason":"RANGING_ENGINE_ERROR","rssi_dbm":0,"snr_db":0,"source":"log"}
+{"type":"log","ts":45403,"level":"INFO","tag":"RANGE","text":"t=45403ms [INFO] [RANGE] range_result ok=false from=2 to=0 request_id=5 range_fail_reason=TIMEOUT elapsed_ms=359 error=-901 note=\"ranging timeout\" source=air_report heard_by=1 report_rssi_dbm=-53.0 report_snr_db=13.5"}
+{"type":"range","ts":45403,"from_id":2,"to_id":0,"request_id":5,"ok":false,"range_fail_reason":"TIMEOUT","rssi_dbm":-53,"snr_db":14,"source":"air_report"}
 ```
 
 `source=air_report` means the connected node heard another node's compact

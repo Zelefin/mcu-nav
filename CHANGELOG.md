@@ -32,6 +32,11 @@ work.
 - Added a control-app node-name table that caches labels for nodes `0..3` and
   persists the connected node's name through the existing NVS-backed name
   command.
+- Added on-demand OTA debug telemetry: `DEBUG_ENABLE` broadcasts keep peers in
+  runtime-only debug telemetry mode with a TTL, and peers broadcast compact
+  `NODE_QUALITY_REPORT` diagnostics over the best-effort radio path.
+- Added typed NDJSON control-channel records for `snapshot`, `node_quality`,
+  `range`, and `log`, plus a RAM-only `debug` serial command.
 - Added an issue-shaped Phase 2 backlog under `docs/issues/` with acceptance
   criteria for the Working PoC, endpoint-bearing ranges, pair-range network
   view, GNSS adapter, ESP32 TDMA/ranging paths, radio navigation acceptance,
@@ -62,6 +67,8 @@ work.
 - Reflowed the control-app distance and peer tables to fit without horizontal
   scrolling, with range failure notes exposed as an info icon beside non-ok
   distance states.
+- Changed repository-root firmware serial output from bare snapshots and raw
+  text logs to typed NDJSON records documented in `docs/capture_ndjson.md`.
 
 ### Protocol
 
@@ -71,6 +78,8 @@ work.
 - Documented the SX1280 ranging engine as the required source of node-to-node
   distance measurements; RSSI, SNR, packet timing, and host round trips remain
   diagnostics only.
+- Finalized `DEBUG_ENABLE` as radio message type `71` and
+  `NODE_QUALITY_REPORT` as radio message type `72`.
 
 ### Docs
 
@@ -85,6 +94,8 @@ work.
   only and does not complete GNSS/trilateration acceptance.
 - Documented the ESP32-S3 stale `sdkconfig.*` troubleshooting path for control
   input over USB Serial/JTAG.
+- Reconciled `AGENTS.md` with ADR 0002 so on-device SX1280 nav-node integration
+  is no longer described as out of repository scope.
 
 ### Migration
 

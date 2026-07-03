@@ -13,8 +13,8 @@ The repository root is a PlatformIO firmware project that builds the navigation
 node for three targets (see Supported Boards). The firmware is a thin port over
 the portable `core/`: drivers turn sensor/radio data into `nav_event_t`, the core
 runs the peer table and trilateration, and a USB-serial control channel streams a
-JSON snapshot to the browser control-app and applies its commands. A boot
-self-test checks radio ranging before the node runs. In the current
+typed NDJSON records to the browser control-app / capture tooling and applies
+its commands. A boot self-test checks radio ranging before the node runs. In the current
 distance-only firmware slice, GPS and compass runtime health tasks are disabled
 by default.
 
@@ -176,6 +176,9 @@ example:
 ```
 
 ### Expected Output
+
+The serial stream is NDJSON. The `text` field of `log` records contains messages
+like:
 
 ```text
 t=...ms [INFO] [SYSTEM] Booting firmware
@@ -441,14 +444,19 @@ examples/        Replay/GNSS fixtures and committed deterministic scenarios.
 ### Control App
 
 Open `control-app/index.html` in desktop Chrome or Edge, click Connect, and pick
-the node's USB-serial port. The app shows the connected node's mode/solution,
-peer snapshot, and distance observations discovered from that serial stream. The
-distance table is built from discovered node IDs plus received `range_result`
-telemetry, including best-effort `source=air_report` reports for pairs measured
-by other nodes. Valid ranges are shown in green. Failed ranging attempts that
-still include an SX1280 `uncorrected_m` diagnostic, such as short-range
-`invalid distance`, show that diagnostic distance in red. Missing or GPS-derived
-fields are shown as `—` until that data exists.
+the node's USB-serial port. The checked-in single-file app is legacy; the
+firmware now emits the typed NDJSON contract in `docs/capture_ndjson.md`, and
+the browser UI is expected to consume that during the React migration. Until
+then, pipe serial output to an `.ndjson` file for capture/analysis.
+
+The app shows the connected node's mode/solution, peer snapshot, and distance
+observations discovered from that serial stream. The distance table is built
+from discovered node IDs plus received `range` records, including best-effort
+`source=air_report` reports for pairs measured by other nodes. Valid ranges are
+shown in green. Failed ranging attempts that still include an SX1280
+`uncorrected_m` diagnostic, such as short-range `invalid distance`, show that
+diagnostic distance in red. Missing or GPS-derived fields are shown as `—` until
+that data exists.
 The node-name controls cache labels in the browser and can persist the connected
 node's name to device storage (NVS on ESP32, EEPROM on SpeedyBee).
 The app also lets you set node ID, toggle the navigation core's GPS preference

@@ -18,7 +18,9 @@ math.
   adapters with fixed buffers and no file I/O, dynamic allocation, or platform
   APIs.
 - Put platform-specific code under `ports/`.
-- Do not implement ESP8285/SX1280 radio firmware in this repository.
+- Per ADR 0002, on-device SX1280 ranging/telemetry integration for the
+  navigation-node firmware lives in this repository as platform code. Do not add
+  a separate radio-coprocessor firmware product here.
 - Do not start flight-controller integration here; keep only future output
   abstractions and documentation.
 - Use event-in, snapshot/log-out flow. The core owns its internal state.
@@ -62,8 +64,7 @@ math.
   generate truth or random scenarios.
 - Do not remove logs unless replacing them with better structured logs.
 - Keep `docs/radio_protocol.md` synchronized with public protocol enums and
-  payload structs. It is a future cross-repo contract with the radio firmware
-  repository.
+  payload structs. It is the on-device over-the-air contract for nav nodes.
 - Keep protocol names precise: `frame_seq` for host-radio frames, `packet_seq`
   for peer beacons, `request_id` for ranging requests, `range_fail_reason` for
   radio failures, and `reject_reason` for navigation decisions.

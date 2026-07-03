@@ -20,11 +20,14 @@ firmware, config, or the capture.**
 
 ## Procedure
 
-1. **Load & validate.** Read the file line by line. Confirm the first line is a
-   `meta` record; capture `schema_version`, `node_id`, `firmware_build`, `debug`.
-   Skip malformed lines but count them. Note the wall-clock span from `ts_ms`.
-   For large files, prefer a small script (jq / Python) over reading the whole
-   file into context; report the commands you ran so the numbers are reproducible.
+1. **Load & validate.** Read the file line by line. If the first line is a
+   `meta` record, capture `schema_version`, `node_id`, `firmware_build`, `debug`.
+   If there is no `meta`, treat it as a direct firmware serial capture and infer
+   connected node/debug state from records where possible. Skip malformed lines
+   but count them. Note the wall-clock span from `ts_ms` when present; otherwise
+   use device `ts`. For large files, prefer a small script (jq / Python) over
+   reading the whole file into context; report the commands you ran so the
+   numbers are reproducible.
 
 2. **Inventory.** Count records per `type`; list node ids seen (connected node +
    any `node_quality`/`range` endpoints). State whether debug telemetry mode was

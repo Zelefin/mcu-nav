@@ -6,6 +6,11 @@ input format for offline analysis and the `analyze-capture` skill. This document
 is the contract that both the writer (control app) and readers (humans, the AI
 agent) rely on.
 
+During firmware-first bring-up, piping a node's USB-serial output directly to a
+file also produces NDJSON records, but without the browser-added `meta` line or
+`ts_ms` wall-clock timestamps. Readers must accept those direct serial captures
+and use device `ts` for ordering.
+
 The control channel itself is described in `docs/data_flow.md` and
 `core/nav_serial_json`. The over-the-air source of the quality data is in
 `docs/radio_protocol.md`.
@@ -14,8 +19,10 @@ The control channel itself is described in `docs/data_flow.md` and
 
 - One JSON object per line (`\n`-terminated). No trailing commas, no multi-line
   objects, no array wrapper.
-- The **first line** is always a `meta` record.
-- Every subsequent line is one of `snapshot`, `node_quality`, `range`, `log`.
+- Control-app recordings start with a `meta` record.
+- Direct firmware serial captures may omit `meta`; their first line may be
+  `snapshot`, `node_quality`, `range`, or `log`.
+- Every non-`meta` line is one of `snapshot`, `node_quality`, `range`, `log`.
 - Lines are appended in receive order. Readers must not assume records are sorted
   by device time; sort/merge on `ts_ms` if a global timeline is needed.
 - Unknown `type` values and unknown fields must be ignored by readers
@@ -28,7 +35,7 @@ Every record carries:
 | Field | Type | Meaning |
 | ----- | ---- | ------- |
 | `type` | string | Record kind: `meta` \| `snapshot` \| `node_quality` \| `range` \| `log`. |
-| `ts_ms` | number | Browser wall-clock at receive, epoch milliseconds. Absolute; survives device reboots. |
+| `ts_ms` | number | Browser wall-clock at receive, epoch milliseconds. Present in control-app captures; absent in direct firmware serial captures. |
 | `ts` | number | Device monotonic milliseconds (`t` from the node), if present on the source record. Resets on node reboot. |
 
 `ts_ms` is added by the control app; `ts` comes from the device. Use `ts_ms` for
@@ -45,7 +52,8 @@ decibels. Quality scores are `0.0..1.0` unless a `_u8` suffix indicates a
 
 ### `meta` (first line)
 
-Session header written once when recording starts.
+Session header written once by the control app when recording starts. Direct
+firmware serial captures omit this record.
 
 | Field | Type | Meaning |
 | ----- | ---- | ------- |
