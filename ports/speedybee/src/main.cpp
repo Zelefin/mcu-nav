@@ -723,6 +723,7 @@ void serviceDebugTelemetryTx(uint32_t now, uint32_t remainingMs) {
   }
 }
 
+void pumpSerial();
 void serviceControlChannel();
 
 void logMasterFailure(uint8_t masterId,
@@ -749,17 +750,8 @@ void logMasterFailure(uint8_t masterId,
            note);
   emitLog(millis(), "WARN", "RANGE", text);
 
-  char report[kRangeReportPayloadMax];
-  snprintf(report,
-           sizeof(report),
-           "range_result ok=false from=%u to=%u request_id=%u range_fail_reason=%s elapsed_ms=%lu note=\"%s\"",
-           static_cast<unsigned>(masterId),
-           static_cast<unsigned>(peerId),
-           static_cast<unsigned>(requestId),
-           rangeFailReasonName(reason),
-           static_cast<unsigned long>(elapsedMs),
-           note);
-  broadcastRangeReport(report);
+  // Failed local attempts are already emitted over USB. Avoid switching back to
+  // packet TX while recovering from a ranging timeout.
   injectRangeFail(masterId, peerId, requestId, reason);
 }
 
@@ -789,7 +781,7 @@ void runMasterExchange(uint8_t masterId, uint8_t peerId) {
 
   uint16_t irq = 0;
   while ((millis() - startedMs) < kMasterHostTimeoutMs) {
-    serviceControlChannel();
+    pumpSerial();
     irq = gRadio.getIrqStatus();
     if (irq & (SX1280::IRQ_RANGING_MASTER_RESULT_VALID |
                SX1280::IRQ_RANGING_MASTER_TIMEOUT |
@@ -797,7 +789,6 @@ void runMasterExchange(uint8_t masterId, uint8_t peerId) {
       break;
     }
     delay(2);
-    yield();
   }
 
   const uint32_t elapsedMs = millis() - startedMs;
@@ -806,10 +797,10 @@ void runMasterExchange(uint8_t masterId, uint8_t peerId) {
         (irq & (SX1280::IRQ_RANGING_MASTER_TIMEOUT | SX1280::IRQ_RX_TX_TIMEOUT))
             ? NAV_RANGE_FAIL_TIMEOUT
             : NAV_RANGE_FAIL_NO_RESPONSE;
-    logMasterFailure(masterId, peerId, requestId, elapsedMs, reason, irq, "ranging timeout");
     gRadio.clearIrqStatus();
     gRadio.setStandby();
     setPaMode(PA_OFF);
+    logMasterFailure(masterId, peerId, requestId, elapsedMs, reason, irq, "ranging timeout");
     return;
   }
 
@@ -910,7 +901,7 @@ void serviceSlave(uint8_t nodeId, uint32_t listenWindowMs) {
   gRadio.startSlaveListen();
   bool requestLogged = false;
   while ((millis() - startedMs) < listenWindowMs) {
-    serviceControlChannel();
+    pumpSerial();
     const uint16_t irq = gRadio.getIrqStatus();
     if ((irq & SX1280::IRQ_RANGING_SLAVE_REQUEST_VALID) && !requestLogged) {
       requestLogged = true;
@@ -937,7 +928,6 @@ void serviceSlave(uint8_t nodeId, uint32_t listenWindowMs) {
       break;
     }
     delay(10);
-    yield();
   }
 
   gRadio.clearIrqStatus();

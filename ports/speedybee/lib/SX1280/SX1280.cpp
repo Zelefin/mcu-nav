@@ -43,7 +43,7 @@ bool SX1280::waitBusy(uint32_t timeout_us) {
     if ((uint32_t)(micros() - start) > timeout_us) {
       return false;
     }
-    yield();
+    delayMicroseconds(50);
   }
   return true;
 }
@@ -317,7 +317,6 @@ bool SX1280::transmitPacket(const uint8_t *payload, uint8_t len, uint32_t timeou
       break;
     }
     delay(1);
-    yield();
   }
 
   clearIrqStatus();
@@ -374,7 +373,6 @@ bool SX1280::receivePacket(uint8_t *payload,
       return packet_len <= max_len;
     }
     delay(1);
-    yield();
   }
 
   clearIrqStatus();
