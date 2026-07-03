@@ -28,9 +28,9 @@ bool isDebugEnabled();
 // GPS-denied and does not advertise itself as a GNSS anchor.
 bool isGpsEnabled();
 
-// Builds this node's GNSS-valid telemetry beacon for over-the-air anchor
-// discovery. Returns false when GPS is disabled, absent, or not yet usable; in
-// that state the node remains distance-only.
+// Builds this node's mappable telemetry beacon for over-the-air display and
+// anchor discovery. GNSS beacons set gnss_valid for anchor eligibility; accepted
+// RADIO_3D beacons carry source metadata with gnss_valid=false for display only.
 bool getLocalTelemetry(uint32_t packetSeq, nav_peer_telemetry_t *out);
 
 // Builds this node's latest diagnostics-only quality report for OTA debug

@@ -411,7 +411,6 @@ examples/        Replay/GNSS fixtures and committed deterministic scenarios.
 Use `telemetry-ui/` for browser control and capture analysis. It consumes the
 typed NDJSON contract in `docs/capture_ndjson.md`, connects over Web Serial in
 desktop Chrome/Edge, records `.ndjson` captures, and can reopen saved captures.
-The older `control-app/` single-file UI is deprecated.
 
 The UI shows the connected node's mode/solution, peer snapshot, whole-system
 debug quality records, and typed `range` records including best-effort
@@ -424,6 +423,28 @@ is allowed as this node's solution (`disabled` = forced radio navigation), and
 set the constant local altitude used by the altitude-constrained trilateration
 solver when local GPS is disabled or absent. SpeedyBee ignores GPS commands
 because it has no GPS hardware.
+
+### Offline Control App
+
+For the field-kit map path, start the app through the OS launcher in
+`control-app/` (`start-linux.sh`, `start-windows.bat`, or
+`start-macos.command`). The launcher requires Python 3, starts a range-capable
+`localhost` server, and opens `index.html`. Place the optional offline Kyiv map
+sidecar at `control-app/kyiv-oblast.pmtiles`; it is not committed to git.
+Directly opening `control-app/index.html` can still show the non-map UI or
+coordinate-plot fallback.
+
+In desktop Chrome or Edge, click Connect and pick the node's USB-serial port.
+The app shows the connected node's mode/solution, live map position, peer
+snapshot, and distance observations discovered from that serial stream. The map
+uses blue/green markers for GNSS positions and amber/orange markers for accepted
+`RADIO_3D` no-GPS estimates. Peer `RADIO_3D` positions are display-only; anchor
+selection still requires GNSS-valid peer positions and local ranges.
+
+The node-name controls cache labels in the browser and can persist the connected
+node's name to device storage (NVS on ESP32, EEPROM on SpeedyBee). The app also
+lets you set node ID, toggle the navigation core's GPS preference (off =
+trilateration), toggle the mock peer source, and set the constant altitude.
 
 ### Single-Node Development
 
@@ -448,6 +469,7 @@ cmake -S . -B build && cmake --build build
 - [Logging](docs/logging.md)
 - [GNSS NMEA](docs/gnss_nmea.md)
 - [GPS trilateration bring-up](docs/gps_trilateration_bringup.md)
+- [Control app map field test](docs/control_app_map_field_test.md)
 - [Debug playbook](docs/debug_playbook.md)
 - [Radio protocol](docs/radio_protocol.md)
 - [Replay CSV](docs/replay_csv.md)

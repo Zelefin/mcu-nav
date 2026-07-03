@@ -75,7 +75,7 @@ snapshot object (see `nav_serial_write_snapshot`). Carried verbatim under `data`
 | ----- | ---- | ------- |
 | `type` | string | `"snapshot"`. |
 | `ts_ms` / `ts` | number | Envelope timestamps. |
-| `data` | object | The snapshot object: `{t, node:{id,name,gps,mock}, mode, sol, src, reject, pos:{lat_e7,lon_e7,alt_mm}, num_anchors, peers:[{id,gnss,lat_e7,lon_e7,alt_mm,range_mm,range_valid,rssi,snr,quality}]}`. |
+| `data` | object | The snapshot object: `{t, node:{id,name,gps,mock}, mode, sol, src, reject, pos:{lat_e7,lon_e7,alt_mm}, position_source, position_valid, position_degraded, num_anchors, peers:[{id,gnss,lat_e7,lon_e7,alt_mm,position_source,position_valid,position_degraded,telemetry_age_ms,range_mm,range_valid,rssi,snr,quality}]}`. |
 
 ### `node_quality`
 
@@ -144,7 +144,7 @@ A firmware text log line, retained for context and OTA-path debugging.
 
 ```json
 {"type":"meta","ts_ms":1751539200000,"schema_version":1,"app_version":"react-0.1.0","firmware_build":"Jul 03 2026","node_id":2,"node_name":"alpha","debug":true}
-{"type":"snapshot","ts_ms":1751539200500,"ts":43945,"data":{"t":43945,"node":{"id":2,"name":"alpha","gps":false,"mock":false},"mode":"NO_NAV_SOLUTION","sol":"NONE","src":"NONE","reject":"NOT_ENOUGH_ANCHORS","pos":{"lat_e7":0,"lon_e7":0,"alt_mm":0},"num_anchors":0,"peers":[{"id":3,"gnss":false,"lat_e7":0,"lon_e7":0,"alt_mm":0,"range_mm":3420,"range_valid":true,"rssi":-48,"snr":8,"quality":0.0}]}}
+{"type":"snapshot","ts_ms":1751539200500,"ts":43945,"data":{"t":43945,"node":{"id":2,"name":"alpha","gps":false,"mock":false},"mode":"NO_NAV_SOLUTION","sol":"NONE","src":"NONE","reject":"NOT_ENOUGH_ANCHORS","pos":{"lat_e7":0,"lon_e7":0,"alt_mm":0},"position_source":"NONE","position_valid":false,"position_degraded":false,"num_anchors":0,"peers":[{"id":3,"gnss":false,"lat_e7":0,"lon_e7":0,"alt_mm":0,"position_source":"NONE","position_valid":false,"position_degraded":false,"telemetry_age_ms":120,"range_mm":3420,"range_valid":true,"rssi":-48,"snr":8,"quality":0.0}]}}
 {"type":"node_quality","ts_ms":1751539201100,"ts":44510,"node_id":3,"origin":"peer","age_ms":220,"data":{"nav_mode":"RADIO_NAV_OK","solution_status":"RADIO_3D","solution_source":"RADIO_3D","residual_rms_m":0.31,"max_residual_m":0.52,"geometry_score":0.87,"total_quality":0.79,"num_anchors":3,"anchor_ids":[0,1,2],"fix_type":"NONE","satellites":0,"hdop_centi":0,"hacc_mm":0,"vacc_mm":0,"lat_e7":504529000,"lon_e7":305268000,"alt_mm":183500,"packet_seq":104}}
 {"type":"range","ts_ms":1751539201400,"ts":44803,"from_id":1,"to_id":2,"request_id":13,"ok":false,"range_fail_reason":"TIMEOUT","source":"air_report","rssi_dbm":-54,"snr_db":13}
 {"type":"log","ts_ms":1751539201450,"ts":44810,"level":"WARN","tag":"RANGE","text":"t=44810ms [WARN] [RANGE] range_result ok=false from=1 to=2 request_id=13 range_fail_reason=TIMEOUT"}

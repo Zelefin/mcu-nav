@@ -17,6 +17,8 @@ static nav_peer_telemetry_t telemetry(uint8_t node_id)
         .hacc_mm = 1200u,
         .vacc_mm = 1800u,
         .nav_mode = NAV_MODE_GNSS_OK,
+        .solution_status = NAV_SOLUTION_GNSS_DIRECT,
+        .solution_source = NAV_SOURCE_LOCAL_GNSS,
     };
     return t;
 }
@@ -35,6 +37,8 @@ int main(void)
     assert(peer->packet_seq == 42u);
     assert(peer->position.alt_mm == 180000);
     assert(peer->gnss_valid);
+    assert(peer->solution_status == NAV_SOLUTION_GNSS_DIRECT);
+    assert(peer->solution_source == NAV_SOURCE_LOCAL_GNSS);
 
     nav_range_result_t range = {
         .peer_id = 1u,
@@ -70,6 +74,21 @@ int main(void)
     assert(peer->packet_seq == 42u);
     assert(peer->rssi_dbm == -71);
     assert(peer->snr_db == 8);
+
+    nav_peer_telemetry_t radio = telemetry(3u);
+    radio.gnss_valid = false;
+    radio.fix_type = NAV_GNSS_FIX_NONE;
+    radio.solution_status = NAV_SOLUTION_RADIO_3D;
+    radio.solution_source = NAV_SOURCE_RADIO_3D;
+    assert(nav_peer_table_update_telemetry(&table, &radio, 1400u));
+    nav_range_result_t radio_range = range;
+    radio_range.peer_id = 3u;
+    assert(nav_peer_table_update_range(&table, &radio_range, 1450u));
+    peer = nav_peer_table_get(&table, 3u);
+    assert(peer != 0);
+    assert(peer->solution_source == NAV_SOURCE_RADIO_3D);
+    assert(!peer->gnss_valid);
+    assert(!peer->range_position_valid);
 
     nav_peer_table_mark_stale(&table, 2501u, 1000u, 1000u);
     assert(!peer->gnss_valid);

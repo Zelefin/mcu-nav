@@ -23,14 +23,16 @@ ranges, and a local altitude constraint.
 
 1. ESP32 GNSS-capable firmware reads NMEA over UART, stamps parsed samples with
    local time, and injects `NAV_EVT_LOCAL_GNSS_SAMPLE` into the portable core.
-2. A node transmits an OTA beacon with coordinates only when GPS usage is enabled
-   and the local GNSS sample is fresh and usable. No-GPS, GPS-disabled, and
-   no-fix nodes transmit only ranging/debug evidence.
+2. A node transmits an OTA beacon with coordinates when it has a current
+   accepted mappable position. That position may be local GNSS or an accepted
+   `RADIO_3D` estimate. The beacon carries explicit source/status metadata so
+   receivers can distinguish a GNSS anchor from a no-GPS estimate.
 3. SpeedyBee remains a radio-only firmware target. It consumes peer coordinate
    beacons and participates in ranging, but it never advertises GNSS coordinates.
 4. GPS-disabled mode means local GNSS cannot become the navigation solution or an
    advertised anchor. The local node can still solve `RADIO_3D` from peer GNSS
-   anchors, SX1280 ranges, and a fresh local altitude sample.
+   anchors, SX1280 ranges, and a fresh local altitude sample, and may advertise
+   that estimate for map display with `gnss_valid = false`.
 5. Anchor selection uses the peer coordinate that was current when a local range
    was accepted. Later beacons refresh diagnostics, but they do not get combined
    with older distances until a newer range arrives.
@@ -40,6 +42,9 @@ ranges, and a local altitude constraint.
 
 - A real GPS-denied `RADIO_3D` solve requires three GPS-valid peer anchors, three
   fresh local ranges to those peers, and a fresh local altitude sample.
+- `gnss_valid` remains the anchor-eligibility signal. A peer beacon with
+  `solution_source = RADIO_3D` can be rendered on a map, but it must not be used
+  as another node's GNSS anchor.
 - A one-table hardware setup is useful for compile, telemetry, and packet
   plumbing, but short-distance SX1280 range failures are not treated as final
   navigation acceptance evidence. Larger-area tests at roughly 100-500 m are the

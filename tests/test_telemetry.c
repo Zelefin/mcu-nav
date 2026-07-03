@@ -20,6 +20,8 @@ static void test_beacon_roundtrip(void)
         .gnss_valid = true,
         .satellites = 11u,
         .nav_mode = NAV_MODE_GNSS_OK,
+        .solution_status = NAV_SOLUTION_GNSS_DIRECT,
+        .solution_source = NAV_SOURCE_LOCAL_GNSS,
     };
 
     uint8_t bytes[NAV_RADIO_MAX_FRAME_BYTES];
@@ -41,8 +43,38 @@ static void test_beacon_roundtrip(void)
     assert(b->telemetry.gnss_valid);
     assert(b->telemetry.fix_type == NAV_GNSS_FIX_3D);
     assert(b->telemetry.nav_mode == NAV_MODE_GNSS_OK);
+    assert(b->telemetry.solution_status == NAV_SOLUTION_GNSS_DIRECT);
+    assert(b->telemetry.solution_source == NAV_SOURCE_LOCAL_GNSS);
     assert(b->rssi_dbm == -64); /* measured locally on receive */
     assert(b->snr_db == 9);
+}
+
+static void test_radio_3d_beacon_roundtrip(void)
+{
+    nav_peer_telemetry_t t = {
+        .node_id = 1u,
+        .packet_seq = 205u,
+        .timestamp_ms = 125000u,
+        .position = {504529000, 305268000, 183500},
+        .fix_type = NAV_GNSS_FIX_NONE,
+        .gnss_valid = false,
+        .nav_mode = NAV_MODE_RADIO_NAV_OK,
+        .solution_status = NAV_SOLUTION_RADIO_3D,
+        .solution_source = NAV_SOURCE_RADIO_3D,
+    };
+
+    uint8_t bytes[NAV_RADIO_MAX_FRAME_BYTES];
+    size_t len = 0u;
+    assert(nav_telemetry_encode_beacon(&t, (uint16_t)t.packet_seq, bytes, sizeof(bytes), &len) == NAV_STATUS_OK);
+
+    nav_event_t ev;
+    assert(nav_telemetry_decode_event(bytes, len, 201000u, -70, 7, &ev) == NAV_STATUS_OK);
+    const nav_peer_beacon_rx_t *b = &ev.data.peer_beacon_rx;
+    assert(b->telemetry.position.lat_e7 == 504529000);
+    assert(!b->telemetry.gnss_valid);
+    assert(b->telemetry.fix_type == NAV_GNSS_FIX_NONE);
+    assert(b->telemetry.solution_status == NAV_SOLUTION_RADIO_3D);
+    assert(b->telemetry.solution_source == NAV_SOURCE_RADIO_3D);
 }
 
 static void test_range_roundtrip(void)
@@ -211,6 +243,7 @@ static void test_decode_errors(void)
 int main(void)
 {
     test_beacon_roundtrip();
+    test_radio_3d_beacon_roundtrip();
     test_range_roundtrip();
     test_debug_enable_roundtrip();
     test_node_quality_roundtrip();

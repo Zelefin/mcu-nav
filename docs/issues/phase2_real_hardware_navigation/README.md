@@ -27,3 +27,4 @@ evidence, not as completion of the full Working PoC.
 7. [Radio Navigation Acceptance On Real Boards](0007-radio-navigation-acceptance-on-real-boards.md)
 8. [NMEA Output Abstraction](0008-nmea-output-abstraction.md)
 9. [Optional SpeedyBee Ranging Debug](0009-optional-speedybee-ranging-debug.md)
+10. [Control App Map Visualization](0010-control-app-map-visualization.md)

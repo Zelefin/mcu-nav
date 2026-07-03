@@ -51,6 +51,8 @@ typedef struct {
     uint8_t gnss_fix_type_u8;
     uint8_t gnss_valid_u8;
     uint8_t nav_mode_u8;
+    uint8_t solution_status_u8;
+    uint8_t solution_source_u8;
     int16_t rssi_dbm_i16;
     int16_t snr_db_i16;
     uint8_t reserved_u8;

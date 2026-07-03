@@ -10,7 +10,7 @@ entry in [CONTEXT.md](../CONTEXT.md).
 | # | Decision | Choice |
 |---|----------|--------|
 | 1 | Map purpose | Geographic lat/lon map (absolute coordinates) |
-| 2 | Position source | Peer snapshot only (`snapshot.pos` + `peers[].gnss`); no Debug mode |
+| 2 | Position source | Peer snapshot only (`snapshot.pos` + peer `position_source`/`position_valid`); no Debug mode |
 | 3 | Library | Leaflet + OpenStreetMap raster tiles |
 | 4 | React integration | `react-leaflet` v4 (React 18) |
 | 5 | Placement | Separate **Map** tab; full-width content area |
@@ -28,9 +28,11 @@ Mirror the existing table logic in [App.tsx](../telemetry-ui/src/App.tsx)
 - **This node** is positioned iff `snapshot.pos` has finite `lat_e7`/`lon_e7`
   **and** `snapshot.src` is not `NONE`, **and** `snapshot.sol` is not `NONE` /
   `REJECTED`. (Same guard as `formatPosition`.)
-- **A peer** is positioned iff `peer.gnss === true` **and** `lat_e7`/`lon_e7` are
-  finite **and not both zero** (guard against the `(0,0)` no-fix sentinel — null
-  island).
+- **A peer** is positioned iff `peer.position_valid === true` **and**
+  `lat_e7`/`lon_e7` are finite **and not both zero** (guard against the `(0,0)`
+  no-fix sentinel — null island). `peer.gnss === true` / `position_source ===
+  GNSS` means the coordinate can also be an anchor; `position_source ===
+  RADIO_3D` means display-only.
 - Coordinates are E7 degrees: `deg = e7 / 1e7`. Altitude is mm: `m = mm / 1000`.
 - Everything else (including SpeedyBee, which never has GPS) goes to the roster.
 
@@ -114,11 +116,12 @@ Mirror the existing table logic in [App.tsx](../telemetry-ui/src/App.tsx)
 ## Testing
 
 - `mapModel.test.ts` (vitest): E7→deg conversion; `(0,0)` peer excluded → roster;
-  peer with `gnss:false` excluded; self excluded when `src=NONE`/`sol=REJECTED`;
-  self included when solution valid; range line built only when both endpoints
+  peer with `position_valid:false` excluded; peer with `position_source:RADIO_3D`
+  included as display-only; self excluded when `src=NONE`/`sol=REJECTED`; self
+  included when solution valid; range line built only when both endpoints
   positioned; measured range from `range_mm`; roster covers discovered-but-absent
-  nodes; SpeedyBee (no gnss) always roster. Reuse `fixtures/sample_capture.ndjson`
-  shapes where useful.
+  nodes; SpeedyBee with no mappable solution stays in the roster. Reuse
+  `fixtures/sample_capture.ndjson` shapes where useful.
 - One `MapView` smoke test (`@testing-library/react`) with `react-leaflet` mocked
   to trivial stubs: asserts roster/banner render for an empty model and marker
   count for a populated model. No assertions on Leaflet internals.
@@ -134,7 +137,8 @@ Mirror the existing table logic in [App.tsx](../telemetry-ui/src/App.tsx)
 
 ## Verification
 
-Because no node currently holds a GPS fix, verify against a **capture replay**: open
-a capture (or hand-craft an NDJSON) whose snapshot has ≥1 peer with `gnss:true` and
-non-zero coords and a valid `snapshot.pos`, confirm markers, labels, popup, range
-line, and Fit; then confirm the all-no-fix capture shows banner + full roster.
+Because no node currently holds a GPS fix, verify against a **capture replay**:
+open a capture (or hand-craft an NDJSON) whose snapshot has at least one peer
+with `position_valid:true`, non-zero coords, and a valid `snapshot.pos`; confirm
+markers, labels, popup, range line, and Fit; then confirm the all-no-position
+capture shows banner + full roster.

@@ -1,0 +1,12 @@
+{
+  "name": "mcu-nav-control-app-tests",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Browser smoke tests for the nav-mcu control app.",
+  "scripts": {
+    "test:control-app": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1"
+  }
+}
