@@ -19,6 +19,18 @@ void begin(const NodeConfig &config);
 // ESP tasks after begin().
 bool getConfig(NodeConfig *out);
 
+// Runtime-only debug telemetry flag. It is intentionally separate from
+// NodeConfig/NVS so debug mode always boots off.
+bool isDebugEnabled();
+
+// Builds this node's latest diagnostics-only quality report for OTA debug
+// telemetry. Safe to call from the radio task; does not mutate solver state.
+bool getLocalNodeQualityReport(uint32_t packetSeq, nav_node_quality_report_t *out);
+
+// Buffers a peer quality report received over the air. Diagnostics only; never
+// feeds the navigation core or anchor table.
+bool handleNodeQualityReport(const nav_node_quality_report_t *report, uint32_t receivedMs);
+
 // Injects a platform event into the owned navigation core. Safe to call from
 // other ESP tasks after begin().
 bool handleEvent(const nav_event_t *event);

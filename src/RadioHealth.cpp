@@ -16,6 +16,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nav/nav_types.h"
+#include "nav/nav_telemetry.h"
 
 namespace {
 constexpr float kRangingFrequencyMhz = 2445.0f;
@@ -33,12 +34,25 @@ constexpr uint32_t kSlaveListenSliceMs = 120u;
 constexpr uint32_t kReportRxWindowMs = 45u;
 constexpr uint8_t kReportTxRepeats = 3u;
 constexpr uint32_t kReportTxGapMs = 8u;
+constexpr uint32_t kBestEffortTxGuardMs = 80u;
+constexpr uint32_t kDebugEnablePeriodMs = 1000u;
+constexpr uint16_t kDebugEnableTtlMs = 3000u;
+constexpr uint32_t kNodeQualityReportPeriodMs = 1000u;
 constexpr uint32_t kMasterScanIntervalMs = 3200u;
 constexpr uint32_t kInitialMasterDelayMs = 1000u;
 constexpr uint32_t kMasterTurnSpacingMs = 700u;
 constexpr uint32_t kConfigPollMs = 250u;
 constexpr uint32_t kRangeSigmaMm = 1000u;
 constexpr size_t kRangeReportPayloadMax = 224u;
+
+struct DebugTelemetryState {
+  uint32_t remoteDebugActiveUntilMs;
+  uint32_t lastDebugEnableTxMs;
+  uint32_t lastNodeQualityTxMs;
+  uint32_t nodeQualityPacketSeq;
+  uint16_t txFrameSeq;
+  bool remoteDebugWasActive;
+};
 
 uint16_t gRangingCalibration[3][6] = {
     {10299, 10271, 10244, 10242, 10230, 10246},
@@ -85,6 +99,11 @@ uint32_t listenWindowUntil(uint32_t now, uint32_t deadline) {
   }
   const uint32_t untilDeadlineMs = deadline - now;
   return untilDeadlineMs < kSlaveListenWindowMs ? untilDeadlineMs : kSlaveListenWindowMs;
+}
+
+uint32_t remainingInWindow(uint32_t startedMs, uint32_t windowMs) {
+  const uint32_t elapsedMs = nowMs() - startedMs;
+  return elapsedMs >= windowMs ? 0u : windowMs - elapsedMs;
 }
 
 int readPin(int pin) {
@@ -200,7 +219,99 @@ void broadcastRangeReport(const char *rangeResultText) {
   }
 }
 
-void serviceReportRx(uint8_t nodeId, uint32_t windowMs) {
+bool transmitTypedReport(const uint8_t *payload, size_t payloadLen, const char *kind) {
+  if (!payload || payloadLen == 0u) {
+    return false;
+  }
+  if (!waitBusyLow(50)) {
+    Logger::warnf("RADIO", "%s tx=false error=%d note=\"BUSY stayed high\"", kind, RADIOLIB_ERR_SPI_CMD_TIMEOUT);
+    return false;
+  }
+  const int16_t state = radio.transmit(payload, payloadLen);
+  if (state != RADIOLIB_ERR_NONE) {
+    Logger::warnf("RADIO", "%s tx=false error=%d", kind, state);
+    return false;
+  }
+  return true;
+}
+
+bool debugTelemetryRemoteActive(const DebugTelemetryState &state, uint32_t now) {
+  return state.remoteDebugActiveUntilMs != 0u && !timeReached(now, state.remoteDebugActiveUntilMs);
+}
+
+bool periodDue(uint32_t now, uint32_t lastTxMs, uint32_t periodMs) {
+  return lastTxMs == 0u || (now - lastTxMs) >= periodMs;
+}
+
+void handleDebugEnableFrame(const nav_radio_frame_t &frame, uint8_t nodeId, DebugTelemetryState *debugState) {
+  if (!debugState) {
+    return;
+  }
+  nav_debug_enable_t debug = {};
+  const nav_status_t status = nav_telemetry_decode_debug_enable(&frame, &debug);
+  if (status != NAV_STATUS_OK) {
+    Logger::warnf("RADIO", "debug_enable rx=false status=%d", static_cast<int>(status));
+    return;
+  }
+
+  const uint32_t now = nowMs();
+  const bool wasActive = debugTelemetryRemoteActive(*debugState, now);
+  debugState->remoteDebugActiveUntilMs = now + static_cast<uint32_t>(debug.ttl_ms);
+  debugState->lastNodeQualityTxMs = 0u;
+  debugState->remoteDebugWasActive = true;
+  if (!wasActive) {
+    Logger::infof("RADIO",
+                  "debug_telemetry active=true origin=%u heard_by=%u ttl_ms=%u",
+                  static_cast<unsigned>(debug.origin_node_id),
+                  static_cast<unsigned>(nodeId),
+                  static_cast<unsigned>(debug.ttl_ms));
+  }
+}
+
+void handleNodeQualityFrame(const nav_radio_frame_t &frame, uint8_t nodeId) {
+  nav_node_quality_report_t report = {};
+  const nav_status_t status = nav_telemetry_decode_node_quality_report(&frame, &report);
+  if (status != NAV_STATUS_OK) {
+    Logger::warnf("RADIO", "node_quality rx=false status=%d", static_cast<int>(status));
+    return;
+  }
+  if (!ControlChannel::handleNodeQualityReport(&report, nowMs())) {
+    Logger::warnf("RADIO",
+                  "node_quality rx=false node=%u heard_by=%u note=\"buffer rejected\"",
+                  static_cast<unsigned>(report.node_id),
+                  static_cast<unsigned>(nodeId));
+    return;
+  }
+  Logger::debugf("RADIO",
+                 "node_quality rx=true node=%u heard_by=%u packet_seq=%lu",
+                 static_cast<unsigned>(report.node_id),
+                 static_cast<unsigned>(nodeId),
+                 static_cast<unsigned long>(report.packet_seq));
+}
+
+void dispatchTypedReport(const uint8_t *payload, size_t payloadLen, uint8_t nodeId, DebugTelemetryState *debugState) {
+  nav_radio_frame_t frame;
+  const nav_status_t status = nav_radio_decode_frame(payload, payloadLen, &frame);
+  if (status != NAV_STATUS_OK) {
+    return;
+  }
+
+  switch (frame.type) {
+    case NAV_RADIO_MSG_DEBUG_ENABLE:
+      handleDebugEnableFrame(frame, nodeId, debugState);
+      break;
+    case NAV_RADIO_MSG_NODE_QUALITY_REPORT:
+      handleNodeQualityFrame(frame, nodeId);
+      break;
+    default:
+      Logger::debugf("RADIO",
+                     "best_effort rx=true type=%s note=\"ignored\"",
+                     nav_radio_message_type_to_string(frame.type));
+      break;
+  }
+}
+
+void serviceReportRx(uint8_t nodeId, uint32_t windowMs, DebugTelemetryState *debugState) {
   if (windowMs < 5u) {
     return;
   }
@@ -220,24 +331,99 @@ void serviceReportRx(uint8_t nodeId, uint32_t windowMs) {
   }
 
   const size_t packetLen = radio.getPacketLength();
-  char payload[kRangeReportPayloadMax + 1u] = {};
+  uint8_t payload[kRangeReportPayloadMax] = {};
   const size_t readLen = packetLen < kRangeReportPayloadMax ? packetLen : kRangeReportPayloadMax;
-  const int16_t state = radio.readData(reinterpret_cast<uint8_t *>(payload), readLen);
-  payload[readLen] = '\0';
-  sanitizeReportText(payload);
+  const int16_t state = radio.readData(payload, readLen);
 
-  if (state != RADIOLIB_ERR_NONE || strncmp(payload, "NRR1 ", 5u) != 0) {
+  if (state != RADIOLIB_ERR_NONE) {
     return;
   }
 
-  const float reportRssi = radio.getRSSI();
-  const float reportSnr = radio.getSNR();
-  Logger::infof("RANGE",
-                "%s source=air_report heard_by=%u report_rssi_dbm=%.1f report_snr_db=%.1f",
-                payload + 5u,
-                static_cast<unsigned>(nodeId),
-                static_cast<double>(reportRssi),
-                static_cast<double>(reportSnr));
+  if (readLen >= 5u && memcmp(payload, "NRR1 ", 5u) == 0) {
+    char text[kRangeReportPayloadMax + 1u] = {};
+    memcpy(text, payload, readLen);
+    text[readLen] = '\0';
+    sanitizeReportText(text);
+
+    const float reportRssi = radio.getRSSI();
+    const float reportSnr = radio.getSNR();
+    Logger::infof("RANGE",
+                  "%s source=air_report heard_by=%u report_rssi_dbm=%.1f report_snr_db=%.1f",
+                  text + 5u,
+                  static_cast<unsigned>(nodeId),
+                  static_cast<double>(reportRssi),
+                  static_cast<double>(reportSnr));
+    return;
+  }
+
+  dispatchTypedReport(payload, readLen, nodeId, debugState);
+}
+
+void broadcastDebugEnable(uint8_t nodeId, DebugTelemetryState *debugState) {
+  if (!debugState) {
+    return;
+  }
+  nav_debug_enable_t debug = {};
+  debug.origin_node_id = nodeId;
+  debug.ttl_ms = kDebugEnableTtlMs;
+
+  uint8_t frame[NAV_RADIO_MAX_FRAME_BYTES];
+  size_t frameLen = 0u;
+  const nav_status_t status =
+      nav_telemetry_encode_debug_enable(&debug, ++debugState->txFrameSeq, frame, sizeof(frame), &frameLen);
+  if (status != NAV_STATUS_OK) {
+    Logger::warnf("RADIO", "debug_enable tx=false status=%d", static_cast<int>(status));
+    return;
+  }
+  (void)transmitTypedReport(frame, frameLen, "debug_enable");
+}
+
+void broadcastNodeQualityReport(DebugTelemetryState *debugState) {
+  if (!debugState) {
+    return;
+  }
+  nav_node_quality_report_t report = {};
+  const uint32_t packetSeq = ++debugState->nodeQualityPacketSeq;
+  if (!ControlChannel::getLocalNodeQualityReport(packetSeq, &report)) {
+    return;
+  }
+
+  uint8_t frame[NAV_RADIO_MAX_FRAME_BYTES];
+  size_t frameLen = 0u;
+  const nav_status_t status =
+      nav_telemetry_encode_node_quality_report(&report, ++debugState->txFrameSeq, frame, sizeof(frame), &frameLen);
+  if (status != NAV_STATUS_OK) {
+    Logger::warnf("RADIO", "node_quality tx=false status=%d", static_cast<int>(status));
+    return;
+  }
+  (void)transmitTypedReport(frame, frameLen, "node_quality");
+}
+
+void serviceDebugTelemetryTx(uint8_t nodeId, uint32_t remainingMs, DebugTelemetryState *debugState) {
+  if (!debugState || remainingMs < (kBestEffortTxGuardMs + kSlaveListenSliceMs)) {
+    return;
+  }
+
+  const uint32_t now = nowMs();
+  if (ControlChannel::isDebugEnabled() && periodDue(now, debugState->lastDebugEnableTxMs, kDebugEnablePeriodMs)) {
+    debugState->lastDebugEnableTxMs = now;
+    broadcastDebugEnable(nodeId, debugState);
+    return;
+  }
+
+  if (!debugTelemetryRemoteActive(*debugState, now)) {
+    if (debugState->remoteDebugWasActive) {
+      debugState->remoteDebugWasActive = false;
+      Logger::infof("RADIO", "debug_telemetry active=false note=\"ttl expired\"");
+    }
+    return;
+  }
+
+  debugState->remoteDebugWasActive = true;
+  if (periodDue(now, debugState->lastNodeQualityTxMs, kNodeQualityReportPeriodMs)) {
+    debugState->lastNodeQualityTxMs = now;
+    broadcastNodeQualityReport(debugState);
+  }
 }
 
 void publishStatus(HealthState state) {
@@ -539,14 +725,15 @@ void serviceSlave(uint8_t nodeId, uint32_t listenWindowMs) {
   }
 }
 
-void serviceNetworkListen(uint8_t nodeId, uint32_t listenWindowMs) {
+void serviceNetworkListen(uint8_t nodeId, uint32_t listenWindowMs, DebugTelemetryState *debugState) {
   const uint32_t startedMs = nowMs();
   while ((nowMs() - startedMs) < listenWindowMs) {
-    const uint32_t elapsedMs = nowMs() - startedMs;
-    uint32_t remainingMs = listenWindowMs - elapsedMs;
+    uint32_t remainingMs = remainingInWindow(startedMs, listenWindowMs);
+    serviceDebugTelemetryTx(nodeId, remainingMs, debugState);
+    remainingMs = remainingInWindow(startedMs, listenWindowMs);
     if (remainingMs >= (kReportRxWindowMs + 20u)) {
-      serviceReportRx(nodeId, kReportRxWindowMs);
-      remainingMs = listenWindowMs - (nowMs() - startedMs);
+      serviceReportRx(nodeId, kReportRxWindowMs, debugState);
+      remainingMs = remainingInWindow(startedMs, listenWindowMs);
     }
     if (remainingMs < 20u) {
       break;
@@ -605,6 +792,7 @@ extern "C" void RadioHealthTask(void *) {
   uint8_t nextPeerId = NAV_INVALID_NODE_ID;
   uint32_t nextMasterAtMs = 0u;
   uint32_t lastConfigLogMs = 0u;
+  DebugTelemetryState debugTelemetry = {};
 
   for (;;) {
     if (!ControlChannel::getConfig(&config)) {
@@ -642,7 +830,7 @@ extern "C" void RadioHealthTask(void *) {
       if (listenWindowMs < 20u) {
         delayMs(listenWindowMs == 0u ? 1u : listenWindowMs);
       } else {
-        serviceNetworkListen(config.nodeId, listenWindowMs);
+        serviceNetworkListen(config.nodeId, listenWindowMs, &debugTelemetry);
       }
     }
   }

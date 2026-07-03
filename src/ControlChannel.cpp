@@ -1,6 +1,8 @@
 #include "ControlChannel.h"
 
+#include <cmath>
 #include <cstdio>
+#include <cstdint>
 #include <cstring>
 
 #include "freertos/FreeRTOS.h"
@@ -26,10 +28,18 @@ constexpr uint32_t kSnapshotPeriodMs = 500u;
 constexpr size_t kLineMax = 256u;
 constexpr size_t kSnapshotBufMax = 1024u;
 
+struct BufferedNodeQuality {
+  bool present;
+  nav_node_quality_report_t report;
+  uint32_t receivedMs;
+};
+
 NodeConfig gConfig;
 nav_system_t gNav;
 nav_mock_t gMock;
 SemaphoreHandle_t gMutex = nullptr;
+bool gDebugEnabled = false;
+BufferedNodeQuality gNodeQuality[NAV_MAX_NODES];
 
 void emitIntoCore(const nav_event_t *event, void *user) {
   nav_core_handle_event(static_cast<nav_system_t *>(user), event);
@@ -57,7 +67,18 @@ void initCoreForConfig() {
   cfg.degraded_anchor_triangle_area_m2 = 100.0f;
   nav_core_init(&gNav, &cfg);
   applyCoreConfig();
+  std::memset(gNodeQuality, 0, sizeof(gNodeQuality));
   seedMock();
+}
+
+uint32_t metersToMillimeters(float valueM) {
+  if (!std::isfinite(valueM) || valueM <= 0.0f) {
+    return 0u;
+  }
+  if (valueM >= 4294967.0f) {
+    return UINT32_MAX;
+  }
+  return static_cast<uint32_t>((valueM * 1000.0f) + 0.5f);
 }
 
 // Default debug scene so a lone board has something to trilaterate against when
@@ -221,6 +242,70 @@ bool getConfig(NodeConfig *out) {
   }
   xSemaphoreTake(gMutex, portMAX_DELAY);
   *out = gConfig;
+  xSemaphoreGive(gMutex);
+  return true;
+}
+
+bool isDebugEnabled() {
+  if (gMutex == nullptr) {
+    return false;
+  }
+  xSemaphoreTake(gMutex, portMAX_DELAY);
+  const bool enabled = gDebugEnabled;
+  xSemaphoreGive(gMutex);
+  return enabled;
+}
+
+bool getLocalNodeQualityReport(uint32_t packetSeq, nav_node_quality_report_t *out) {
+  if (out == nullptr || gMutex == nullptr) {
+    return false;
+  }
+
+  xSemaphoreTake(gMutex, portMAX_DELAY);
+  nav_snapshot_t snapshot;
+  const bool ok = nav_core_get_snapshot(&gNav, &snapshot);
+  if (ok) {
+    std::memset(out, 0, sizeof(*out));
+    out->node_id = snapshot.node_id;
+    out->nav_mode = snapshot.nav_mode;
+    out->solution_status = snapshot.solution_status;
+    out->solution_source = snapshot.solution_source;
+    out->num_anchors = snapshot.num_anchors;
+    for (size_t i = 0; i < NAV_TRILAT_ANCHOR_COUNT; ++i) {
+      out->anchor_ids[i] = snapshot.selected_anchor_node_ids[i];
+    }
+    out->geometry_score = snapshot.geometry_score;
+    out->total_quality = snapshot.total_quality;
+    out->residual_rms_mm = metersToMillimeters(snapshot.residual_rms_m);
+    out->max_residual_mm = metersToMillimeters(snapshot.max_residual_m);
+    out->hacc_mm = snapshot.hacc_mm;
+    out->vacc_mm = snapshot.vacc_mm;
+    out->position = snapshot.position;
+    out->packet_seq = packetSeq;
+
+    if (gNav.local_gnss_present) {
+      out->fix_type = gNav.local_gnss.fix_type;
+      out->satellites = gNav.local_gnss.satellites;
+      out->hdop_centi = gNav.local_gnss.hdop_centi;
+      out->hacc_mm = gNav.local_gnss.hacc_mm;
+      out->vacc_mm = gNav.local_gnss.vacc_mm;
+    } else {
+      out->fix_type = NAV_GNSS_FIX_NONE;
+    }
+  }
+  xSemaphoreGive(gMutex);
+  return ok;
+}
+
+bool handleNodeQualityReport(const nav_node_quality_report_t *report, uint32_t receivedMs) {
+  if (report == nullptr || gMutex == nullptr || report->node_id >= NAV_MAX_NODES) {
+    return false;
+  }
+  xSemaphoreTake(gMutex, portMAX_DELAY);
+  BufferedNodeQuality &slot = gNodeQuality[report->node_id];
+  slot.present = true;
+  slot.report = *report;
+  slot.receivedMs = receivedMs;
   xSemaphoreGive(gMutex);
   return true;
 }
