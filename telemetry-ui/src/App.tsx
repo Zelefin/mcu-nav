@@ -4,7 +4,6 @@ import {
   Circle,
   FlaskConical,
   HardDrive,
-  Play,
   PlugZap,
   RotateCcw,
   Save,
@@ -28,7 +27,6 @@ import {
   parseInboundLine,
   withBrowserTimestamp,
 } from "./lib/controlRecords";
-import sampleCapture from "../fixtures/sample_capture.ndjson?raw";
 
 const BAUD_RATE = 115200;
 const DASH = "-";
@@ -101,7 +99,8 @@ export function App() {
 
   const connected = connectionStatus === "connected";
   const serialSupported = typeof navigator !== "undefined" && !!navigator.serial;
-  const fileSystemAccessSupported = typeof window !== "undefined" && !!window.showSaveFilePicker;
+  const captureSaveSupported = typeof window !== "undefined" && !!window.showSaveFilePicker;
+  const captureOpenSupported = typeof window !== "undefined" && !!window.showOpenFilePicker;
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 1000);
@@ -527,7 +526,7 @@ export function App() {
   };
 
   const startRecording = async () => {
-    if (!connected || !fileSystemAccessSupported || !isNodeId(currentNodeId)) return;
+    if (!connected || !captureSaveSupported || !isNodeId(currentNodeId)) return;
     try {
       const handle = await window.showSaveFilePicker?.({
         suggestedName: `nav-mcu-node-${currentNodeId}-${new Date().toISOString().replace(/[:.]/g, "-")}.ndjson`,
@@ -587,11 +586,7 @@ export function App() {
             <Unplug size={16} aria-hidden="true" />
             Disconnect
           </button>
-          <button onClick={() => ingestCaptureText(sampleCapture, "sample_capture.ndjson")} disabled={connected}>
-            <Play size={15} aria-hidden="true" />
-            Sample
-          </button>
-          <button onClick={openCapture} disabled={connected || !fileSystemAccessSupported}>
+          <button onClick={openCapture} disabled={connected || !captureOpenSupported}>
             <Upload size={15} aria-hidden="true" />
             Open
           </button>
@@ -602,7 +597,7 @@ export function App() {
           <button
             className={recording ? "recording-active" : ""}
             onClick={toggleRecording}
-            disabled={!connected || !fileSystemAccessSupported || (!recording && !isNodeId(currentNodeId))}
+            disabled={!connected || !captureSaveSupported || (!recording && !isNodeId(currentNodeId))}
           >
             {recording ? <Square size={15} aria-hidden="true" /> : <Circle size={15} aria-hidden="true" />}
             {recording ? "Stop" : "Record"}
@@ -613,7 +608,7 @@ export function App() {
       {!serialSupported ? (
         <div className="support-warning">Web Serial is unavailable in this browser.</div>
       ) : null}
-      {serialSupported && !fileSystemAccessSupported ? (
+      {serialSupported && !captureSaveSupported ? (
         <div className="support-warning">File System Access is unavailable in this browser.</div>
       ) : null}
 

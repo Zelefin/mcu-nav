@@ -65,21 +65,32 @@ const twoNodeCaptureWithExtraAnchors = [
   .map((record) => JSON.stringify(record))
   .join("\n");
 
-vi.mock("../fixtures/sample_capture.ndjson?raw", () => ({
-  default: twoNodeCaptureWithExtraAnchors,
-}));
-
 describe("App network view", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    Reflect.deleteProperty(window, "showOpenFilePicker");
   });
 
-  it("hides mock controls, removes distance observations, and orders the current node first", async () => {
+  it("hides mock/sample controls, removes distance observations, and orders the current node first", async () => {
+    Object.defineProperty(window, "showOpenFilePicker", {
+      configurable: true,
+      value: vi.fn().mockResolvedValue([
+        {
+          getFile: () =>
+            Promise.resolve({
+              name: "capture.ndjson",
+              text: () => Promise.resolve(twoNodeCaptureWithExtraAnchors),
+            }),
+        },
+      ]),
+    });
+
     const { App } = await import("./App");
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: /sample/i }));
+    expect(screen.queryByRole("button", { name: /sample/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /open/i }));
 
     const peerTable = await screen.findByRole("table", { name: /peer snapshot/i });
 
