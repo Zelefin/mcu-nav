@@ -124,6 +124,8 @@ table as local distances.
 | `HEARTBEAT` | peer → all | Liveness / status flags. | liveness only |
 | `STATUS` / `STATS` | peer → all | Detailed state / link counters. | diagnostics only |
 | `LOG_TEXT` | peer → all | Optional diagnostic text. | diagnostic log only |
+| `DEBUG_ENABLE` (proposed) | connected node → all | Keep peers in debug telemetry mode for a TTL. | none (enables reporting) |
+| `NODE_QUALITY_REPORT` (proposed) | peer → all | Compact per-node quality summary while debug telemetry mode is active. | diagnostics only (node quality report) |
 
 `SET_NODE_ID` / `SET_CONFIG` are **local configuration** applied on the node
 (now via the control-app over USB-serial), not air messages.
@@ -270,6 +272,58 @@ timeout_ms_u16
 For the scheduled slot, `from_id` must match the ranging master and `to_id` must
 match the ranging slave.
 
+### Debug telemetry messages (proposed / future)
+
+Proposed contract for on-demand debug telemetry (see ADR 0004 and
+`docs/prd_ota_debug_telemetry_capture.md`). Transmitted **best-effort** in the
+radio task's idle window; they never preempt ranging. Not yet implemented in
+`nav_radio_protocol.c`; message-type numbers are finalized during implementation
+(candidates: reuse `GET_STATUS`=6 for enable and `STATS`=69 for the report, or
+add dedicated ids).
+
+#### `DEBUG_ENABLE` (proposed)
+
+```text
+origin_node_id_u8
+ttl_ms_u16
+```
+
+The connected node broadcasts this periodically while debug telemetry mode is on.
+A peer enters debug telemetry mode until `now + ttl_ms` and re-arms on each
+received `DEBUG_ENABLE`. When the TTL lapses (the broadcast stops), the peer
+auto-reverts to off. The flag is RAM-only and never persisted (see ADR 0004).
+
+#### `NODE_QUALITY_REPORT` (proposed)
+
+Compact per-node quality summary. Fixed-width, little-endian; total payload is
+kept well under the best-effort packet limit.
+
+```text
+node_id_u8
+nav_mode_u8
+solution_status_u8
+solution_source_u8
+num_anchors_u8
+anchor_ids_u8[3]
+fix_type_u8
+satellites_u8
+geometry_score_u8        // 0..255 scaled from 0..1
+total_quality_u8         // 0..255 scaled from 0..1
+residual_rms_mm_u16
+max_residual_mm_u16
+hdop_centi_u16
+hacc_mm_u32
+vacc_mm_u32
+lat_e7_i32
+lon_e7_i32
+alt_mm_i32
+packet_seq_u32
+```
+
+The connected node decodes this into a per-peer quality buffer and emits it on the
+control channel as a `node_quality` record (see `docs/capture_ndjson.md`). It is
+diagnostics only: quality reports are never folded into any solver's anchor table.
+
 ## Range Failure Reasons
 
 `nav_range_fail_reason_t`:
@@ -302,6 +356,10 @@ These are radio-layer causes and must not be stored as `nav_reject_reason_t`.
 - `RANGE_FAIL` → `NAV_EVT_RANGE_FAIL` when one endpoint is local; otherwise a
   pair-range/network-health observation.
 - `STATUS` / `HEARTBEAT` / `STATS` / `LOG_TEXT` → diagnostics / liveness only
+- `DEBUG_ENABLE` (proposed) → enables debug telemetry mode on peers; produces no
+  core event
+- `NODE_QUALITY_REPORT` (proposed) → per-peer quality buffer → control-channel
+  `node_quality` record; diagnostics only, never an anchor input
 
 Local GNSS and local altitude samples are produced by the node's own sensors
 (or the mock injector / replay), not by the radio.

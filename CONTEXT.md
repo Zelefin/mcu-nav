@@ -176,3 +176,25 @@ _Avoid_: Production radio firmware, navigation-core ranging
 A hardware bring-up example with its own PlatformIO project files, source, and
 README under its `examples/` directory.
 _Avoid_: Root firmware mode, shared application target
+
+**Debug telemetry mode**:
+A runtime-only, off-by-default state in which the connected node asks peers over
+the radio to broadcast their node quality reports, so one vantage node can
+assemble a whole-system quality picture. It never preempts ranging.
+_Avoid_: Diagnostics mode, verbose mode, full diagnostics stream
+
+**Node quality report**:
+A compact, on-demand, best-effort per-node summary of that node's nav mode,
+solution status/source, trilateration-quality metrics, and GNSS health,
+broadcast only while debug telemetry mode is active.
+_Avoid_: Detailed telemetry, full telemetry, STATS dump
+
+**Debug-enable broadcast**:
+The connected node's periodic best-effort packet that keeps peers in debug
+telemetry mode for a short TTL; peers auto-revert to off when it stops.
+_Avoid_: Poll, command, ping
+
+**Capture session**:
+An NDJSON recording of one control-channel session streamed to a disk file for
+later viewing and AI analysis. It is not the volatile serial-log view.
+_Avoid_: Log dump, trace, session recording
