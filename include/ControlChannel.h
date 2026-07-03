@@ -31,6 +31,10 @@ bool getLocalNodeQualityReport(uint32_t packetSeq, nav_node_quality_report_t *ou
 // feeds the navigation core or anchor table.
 bool handleNodeQualityReport(const nav_node_quality_report_t *report, uint32_t receivedMs);
 
+// Emits a typed range record on the control channel. Used for local range
+// events and decoded best-effort air reports.
+bool emitRangeRecord(const nav_serial_range_record_t *record);
+
 // Injects a platform event into the owned navigation core. Safe to call from
 // other ESP tasks after begin().
 bool handleEvent(const nav_event_t *event);

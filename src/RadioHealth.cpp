@@ -156,6 +156,76 @@ const char *rangeFailReasonName(nav_range_fail_reason_t reason) {
   }
 }
 
+nav_range_fail_reason_t parseRangeFailReason(const char *name) {
+  if (!name) {
+    return NAV_RANGE_FAIL_UNKNOWN;
+  }
+  if (strcmp(name, "TIMEOUT") == 0) return NAV_RANGE_FAIL_TIMEOUT;
+  if (strcmp(name, "NO_RESPONSE") == 0) return NAV_RANGE_FAIL_NO_RESPONSE;
+  if (strcmp(name, "RADIO_BUSY") == 0) return NAV_RANGE_FAIL_RADIO_BUSY;
+  if (strcmp(name, "BAD_FRAME") == 0) return NAV_RANGE_FAIL_BAD_FRAME;
+  if (strcmp(name, "RANGING_ENGINE_ERROR") == 0) return NAV_RANGE_FAIL_RANGING_ENGINE_ERROR;
+  if (strcmp(name, "ABORTED") == 0) return NAV_RANGE_FAIL_ABORTED;
+  if (strcmp(name, "NONE") == 0) return NAV_RANGE_FAIL_NONE;
+  return NAV_RANGE_FAIL_UNKNOWN;
+}
+
+bool parseLegacyRangeReport(const char *text,
+                            uint32_t timestampMs,
+                            int16_t rssiDbm,
+                            int16_t snrDb,
+                            nav_serial_range_record_t *out) {
+  if (!text || !out) {
+    return false;
+  }
+
+  unsigned fromId = 0u;
+  unsigned toId = 0u;
+  unsigned requestId = 0u;
+  unsigned long rangeMm = 0u;
+  if (sscanf(text,
+             "range_result ok=true from=%u to=%u request_id=%u range_mm=%lu",
+             &fromId,
+             &toId,
+             &requestId,
+             &rangeMm) == 4) {
+    *out = {};
+    out->timestamp_ms = timestampMs;
+    out->from_id = static_cast<uint8_t>(fromId);
+    out->to_id = static_cast<uint8_t>(toId);
+    out->request_id = static_cast<uint16_t>(requestId);
+    out->ok = true;
+    out->range_mm = static_cast<uint32_t>(rangeMm);
+    out->range_sigma_mm = kRangeSigmaMm;
+    out->rssi_dbm = rssiDbm;
+    out->snr_db = snrDb;
+    out->source = "air_report";
+    return fromId < NAV_MAX_NODES && toId < NAV_MAX_NODES && requestId <= 65535u && rangeMm <= UINT32_MAX;
+  }
+
+  char reason[32] = {};
+  if (sscanf(text,
+             "range_result ok=false from=%u to=%u request_id=%u range_fail_reason=%31s",
+             &fromId,
+             &toId,
+             &requestId,
+             reason) == 4) {
+    *out = {};
+    out->timestamp_ms = timestampMs;
+    out->from_id = static_cast<uint8_t>(fromId);
+    out->to_id = static_cast<uint8_t>(toId);
+    out->request_id = static_cast<uint16_t>(requestId);
+    out->ok = false;
+    out->rssi_dbm = rssiDbm;
+    out->snr_db = snrDb;
+    out->range_fail_reason = parseRangeFailReason(reason);
+    out->source = "air_report";
+    return fromId < NAV_MAX_NODES && toId < NAV_MAX_NODES && requestId <= 65535u;
+  }
+
+  return false;
+}
+
 void sanitizeReportText(char *text) {
   if (!text) {
     return;
@@ -353,6 +423,14 @@ void serviceReportRx(uint8_t nodeId, uint32_t windowMs, DebugTelemetryState *deb
                   static_cast<unsigned>(nodeId),
                   static_cast<double>(reportRssi),
                   static_cast<double>(reportSnr));
+    nav_serial_range_record_t rangeRecord = {};
+    if (parseLegacyRangeReport(text + 5u,
+                               nowMs(),
+                               static_cast<int16_t>(std::lround(reportRssi)),
+                               static_cast<int16_t>(std::lround(reportSnr)),
+                               &rangeRecord)) {
+      (void)ControlChannel::emitRangeRecord(&rangeRecord);
+    }
     return;
   }
 

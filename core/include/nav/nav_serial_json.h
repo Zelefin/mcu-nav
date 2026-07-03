@@ -32,6 +32,7 @@ typedef enum {
     NAV_CTRL_CMD_SET_NAME,     /* str_value: new node name */
     NAV_CTRL_CMD_SET_ALTITUDE, /* int_value: constant altitude in mm */
     NAV_CTRL_CMD_SET_NODE_ID,  /* int_value: local node id */
+    NAV_CTRL_CMD_SET_DEBUG,    /* bool_value: runtime-only debug telemetry */
     NAV_CTRL_CMD_UNKNOWN
 } nav_ctrl_cmd_type_t;
 
@@ -42,6 +43,20 @@ typedef struct {
     char str_value[NAV_NODE_NAME_MAX];
 } nav_ctrl_command_t;
 
+typedef struct {
+    uint32_t timestamp_ms;
+    uint8_t from_id;
+    uint8_t to_id;
+    uint16_t request_id;
+    bool ok;
+    uint32_t range_mm;
+    uint32_t range_sigma_mm;
+    int16_t rssi_dbm;
+    int16_t snr_db;
+    nav_range_fail_reason_t range_fail_reason;
+    const char *source; /* "log" or "air_report"; NULL becomes "log" */
+} nav_serial_range_record_t;
+
 /* Serialises the snapshot and peer table as one JSON object (no trailing
  * newline). Returns the number of bytes that would be written (snprintf
  * semantics), or a negative value on a null argument. */
@@ -51,6 +66,40 @@ int nav_serial_write_snapshot(
     const nav_serial_node_info_t *info,
     const nav_snapshot_t *snapshot,
     const nav_peer_table_t *peers
+);
+
+/* Serialises a typed snapshot envelope whose data field is the existing bare
+ * snapshot payload. */
+int nav_serial_write_snapshot_record(
+    char *buf,
+    size_t cap,
+    const nav_serial_node_info_t *info,
+    const nav_snapshot_t *snapshot,
+    const nav_peer_table_t *peers
+);
+
+/* Serialises one diagnostics-only node-quality record. origin is "local" or
+ * "peer"; NULL becomes "peer". */
+int nav_serial_write_node_quality_record(
+    char *buf,
+    size_t cap,
+    const nav_node_quality_report_t *report,
+    uint32_t timestamp_ms,
+    uint32_t age_ms,
+    const char *origin
+);
+
+/* Serialises one endpoint-bearing range result/failure record. */
+int nav_serial_write_range_record(char *buf, size_t cap, const nav_serial_range_record_t *record);
+
+/* Serialises one typed text log record. */
+int nav_serial_write_log_record(
+    char *buf,
+    size_t cap,
+    uint32_t timestamp_ms,
+    const char *level,
+    const char *tag,
+    const char *text
 );
 
 /* Parses one command line. Tolerant of surrounding whitespace and key order.
