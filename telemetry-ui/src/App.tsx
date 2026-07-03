@@ -189,7 +189,8 @@ export function App() {
       discover?: boolean;
     }) => {
       if (!isNodeId(input.fromId) || !isNodeId(input.toId) || input.fromId === input.toId) return;
-      if (input.discover !== false || input.state === "ok") {
+      const shouldDiscover = input.discover ?? input.state === "ok";
+      if (shouldDiscover) {
         discoverNodes([input.fromId, input.toId]);
       }
       const [aId, bId] = orderedPair(input.fromId, input.toId);
@@ -235,7 +236,8 @@ export function App() {
 
       for (const peer of nextSnapshot.peers ?? []) {
         if (!isNodeId(peer.id) || !isNodeId(nodeId) || peer.id === nodeId) continue;
-        discoverNodes([peer.id]);
+        const peerHasTelemetry = snapshotPeerHasTelemetry(peer);
+        if (peerHasTelemetry) discoverNodes([peer.id]);
         if (peer.range_valid) {
           recordObservation({
             fromId: nodeId,
@@ -246,14 +248,16 @@ export function App() {
             state: "ok",
             note: "snapshot",
             source: "snapshot",
+            discover: true,
           });
-        } else if (!observations.has(pairKey(nodeId, peer.id))) {
+        } else if (peerHasTelemetry && !observations.has(pairKey(nodeId, peer.id))) {
           recordObservation({
             fromId: nodeId,
             toId: peer.id,
             state: "stale",
             note: "snapshot stale",
             source: "snapshot",
+            discover: true,
           });
         }
       }
@@ -278,6 +282,7 @@ export function App() {
         source: range.source ?? "log",
         state: range.ok ? "ok" : "fail",
         note,
+        discover: range.ok,
       });
     },
     [recordObservation],
@@ -908,6 +913,19 @@ function pairKey(aId: number, bId: number): string {
 
 function hasNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function hasNonZeroNumber(value: unknown): value is number {
+  return hasNumber(value) && value !== 0;
+}
+
+function snapshotPeerHasTelemetry(peer: SnapshotPeer): boolean {
+  if (peer.range_valid && hasNumber(peer.range_mm) && peer.range_mm > 0) return true;
+  if (peer.gnss && (hasNonZeroNumber(peer.lat_e7) || hasNonZeroNumber(peer.lon_e7) || hasNonZeroNumber(peer.alt_mm))) {
+    return true;
+  }
+  if (hasNonZeroNumber(peer.rssi) || hasNonZeroNumber(peer.snr)) return true;
+  return hasNumber(peer.quality) && peer.quality > 0;
 }
 
 function formatDeg(e7: unknown): string {
