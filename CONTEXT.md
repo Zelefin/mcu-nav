@@ -20,6 +20,16 @@ A peer whose GNSS-valid position and fresh range can be used as an input to a
 radio navigation solve.
 _Avoid_: Repeater, relay
 
+**Mappable node position**:
+A node position suitable for operator display, whether it came from local GNSS
+or from an accepted radio navigation solution.
+_Avoid_: GPS point, anchor
+
+**Estimated node position**:
+A mappable node position produced by radio navigation rather than by the node's
+own GNSS receiver.
+_Avoid_: Fake GPS, anchor, GPS point
+
 **System view**:
 The compact per-peer navigation and health table that each node builds from
 directly received telemetry, status, and ranging results.
@@ -57,9 +67,24 @@ over-the-air radio protocol.
 _Avoid_: Wi-Fi portal, web API, MAVLink
 
 **Control app**:
-The single-file browser tool (Web Serial, desktop Chrome) that talks to one node
+The browser tool entered through `control-app/index.html` that talks to one node
 over the control channel to show the network view and change its configuration.
+It may load sidecar field-kit assets such as an offline map bundle.
 _Avoid_: Dashboard, GCS, configurator firmware
+
+**Offline map bundle**:
+A locally available basemap package for a bounded test area that the control app
+can use when internet map tiles are unavailable.
+_Avoid_: Tile scrape, global map cache
+
+**Control app field kit**:
+A shareable local folder or archive that starts the control app with its offline
+map bundle and required browser assets on Linux, Windows, and macOS.
+_Avoid_: Installer, cloud dashboard
+
+**This node**:
+The navigation node currently connected to the control app over USB serial.
+_Avoid_: Browser location, laptop position
 
 **NMEA output abstraction**:
 A future output boundary that turns an accepted navigation snapshot into

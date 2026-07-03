@@ -25,6 +25,8 @@ typedef struct {
     uint32_t hacc_mm;
     uint32_t vacc_mm;
     nav_mode_t peer_nav_mode;
+    nav_solution_status_t solution_status;
+    nav_solution_source_t solution_source;
     uint32_t range_mm;
     uint32_t range_sigma_mm;
     bool range_valid;

@@ -143,6 +143,16 @@ contract before real ESP32 TDMA ranging is treated as the air protocol.
 Telemetry fields are what the remote peer claims. `rssi_dbm_i16` and `snr_db_i16`
 are local diagnostics measured by the receiving radio.
 
+The position fields carry the sender's current accepted mappable position. When
+the sender has local GNSS, the position source is `LOCAL_GNSS` and
+`gnss_valid_u8` marks whether that GNSS fix is usable as an anchor. When the
+sender is GPS-denied but has an accepted radio solution, the same position
+fields carry that `RADIO_3D` estimate with `gnss_valid_u8 = 0` and explicit
+source/status metadata. Receivers may display both sources on the map, but only
+GNSS-valid peer positions are eligible navigation anchors. A sender without an
+accepted solution reports `solution_source = NONE` and should not produce a live
+map marker.
+
 ```text
 peer_id_u8
 packet_seq_u32
@@ -156,6 +166,8 @@ vel_d_mmps_i32
 gnss_fix_type_u8
 gnss_valid_u8
 nav_mode_u8
+solution_status_u8
+solution_source_u8
 rssi_dbm_i16
 snr_db_i16
 reserved_u8

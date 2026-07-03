@@ -71,6 +71,8 @@ static void test_write(void)
             .gnss_valid = true,
             .satellites = 12u,
             .nav_mode = NAV_MODE_GNSS_OK,
+            .solution_status = NAV_SOLUTION_GNSS_DIRECT,
+            .solution_source = NAV_SOURCE_LOCAL_GNSS,
         },
         .rssi_dbm = -60,
         .snr_db = 10,
@@ -105,8 +107,13 @@ static void test_write(void)
     assert(strstr(buf, "\"mock\":true") != NULL);
     assert(strstr(buf, "\"mode\":\"RADIO_NAV_OK\"") != NULL);
     assert(strstr(buf, "\"src\":\"RADIO_3D\"") != NULL);
+    assert(strstr(buf, "\"position_source\":\"RADIO_3D\"") != NULL);
+    assert(strstr(buf, "\"position_valid\":true") != NULL);
+    assert(strstr(buf, "\"position_degraded\":false") != NULL);
     assert(strstr(buf, "\"lat_e7\":504520000") != NULL);
     assert(strstr(buf, "\"id\":1") != NULL);
+    assert(strstr(buf, "\"position_source\":\"GNSS\"") != NULL);
+    assert(strstr(buf, "\"telemetry_age_ms\":0") != NULL);
     assert(strstr(buf, "\"range_mm\":394135") != NULL);
 
     /* snprintf semantics: cap=0 reports the needed length without writing. */

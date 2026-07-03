@@ -30,7 +30,7 @@ constexpr uint32_t kHardwareTelemetryTtlMs = 3000u;
 constexpr uint32_t kHardwareRangeTtlMs = 15000u;
 constexpr uint32_t kHardwareLocalAltitudeTtlMs = 2000u;
 constexpr size_t kLineMax = 256u;
-constexpr size_t kRecordBufMax = 1536u;
+constexpr size_t kRecordBufMax = 2048u;
 
 struct BufferedNodeQuality {
   bool present;
@@ -53,6 +53,16 @@ void emitIntoCore(const nav_event_t *event, void *user) {
 uint32_t nowMs() { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
 
 void seedMock();
+
+bool solutionIsMappable(nav_solution_source_t source, nav_solution_status_t status) {
+  if (source == NAV_SOURCE_LOCAL_GNSS) {
+    return status == NAV_SOLUTION_GNSS_DIRECT;
+  }
+  if (source == NAV_SOURCE_RADIO_3D) {
+    return status == NAV_SOLUTION_RADIO_3D || status == NAV_SOLUTION_DEGRADED;
+  }
+  return false;
+}
 
 bool effectiveGpsEnabled() {
 #if NAV_ENABLE_GNSS
@@ -354,29 +364,43 @@ bool getLocalTelemetry(uint32_t packetSeq, nav_peer_telemetry_t *out) {
 
   xSemaphoreTake(gMutex, portMAX_DELAY);
   const uint32_t currentMs = nowMs();
+  nav_snapshot_t snapshot;
+  (void)nav_core_get_snapshot(&gNav, &snapshot);
   const bool freshGnss =
       gNav.local_gnss_present &&
       (gNav.config.telemetry_ttl_ms == 0u || (currentMs - gNav.local_gnss.timestamp_ms) <= gNav.config.telemetry_ttl_ms);
   const bool usableGnss = effectiveGpsEnabled() && freshGnss && nav_gnss_sample_is_usable(&gNav.local_gnss);
-  if (usableGnss) {
-    nav_snapshot_t snapshot;
-    (void)nav_core_get_snapshot(&gNav, &snapshot);
+  const bool usableRadioPosition =
+      snapshot.solution_source == NAV_SOURCE_RADIO_3D && solutionIsMappable(snapshot.solution_source, snapshot.solution_status);
+  if (usableGnss || usableRadioPosition) {
     std::memset(out, 0, sizeof(*out));
     out->node_id = gConfig.nodeId;
     out->packet_seq = packetSeq;
     out->timestamp_ms = currentMs;
-    out->position = gNav.local_gnss.position;
-    out->velocity = gNav.local_gnss.velocity;
-    out->fix_type = gNav.local_gnss.fix_type;
-    out->gnss_valid = true;
-    out->satellites = gNav.local_gnss.satellites;
-    out->hdop_centi = gNav.local_gnss.hdop_centi;
-    out->hacc_mm = gNav.local_gnss.hacc_mm;
-    out->vacc_mm = gNav.local_gnss.vacc_mm;
     out->nav_mode = snapshot.nav_mode;
+    if (usableGnss) {
+      out->position = gNav.local_gnss.position;
+      out->velocity = gNav.local_gnss.velocity;
+      out->fix_type = gNav.local_gnss.fix_type;
+      out->gnss_valid = true;
+      out->satellites = gNav.local_gnss.satellites;
+      out->hdop_centi = gNav.local_gnss.hdop_centi;
+      out->hacc_mm = gNav.local_gnss.hacc_mm;
+      out->vacc_mm = gNav.local_gnss.vacc_mm;
+      out->solution_status = NAV_SOLUTION_GNSS_DIRECT;
+      out->solution_source = NAV_SOURCE_LOCAL_GNSS;
+    } else {
+      out->position = snapshot.position;
+      out->fix_type = NAV_GNSS_FIX_NONE;
+      out->gnss_valid = false;
+      out->hacc_mm = snapshot.hacc_mm;
+      out->vacc_mm = snapshot.vacc_mm;
+      out->solution_status = snapshot.solution_status;
+      out->solution_source = snapshot.solution_source;
+    }
   }
   xSemaphoreGive(gMutex);
-  return usableGnss;
+  return usableGnss || usableRadioPosition;
 }
 
 bool getLocalNodeQualityReport(uint32_t packetSeq, nav_node_quality_report_t *out) {
