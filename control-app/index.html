@@ -907,7 +907,7 @@ function toggleRecording() {
 function recordObservation(obs) {
   if (!isNodeId(obs.fromId) || !isNodeId(obs.toId)) return;
   let graphChanged = false;
-  if (obs.discover !== false || obs.state === "ok") {
+  if (obs.state === "ok" && obs.discover !== false) {
     graphChanged = discoverNode(obs.fromId) || graphChanged;
     graphChanged = discoverNode(obs.toId) || graphChanged;
   }
@@ -1391,6 +1391,14 @@ function peerHasGnss(peer) {
     coordinatesValid(peer.lat_e7, peer.lon_e7);
 }
 
+function peerHasLiveEvidence(peer) {
+  return !!peer && (
+    peerHasGnss(peer) ||
+    !!peer.position_valid ||
+    !!peer.range_valid
+  );
+}
+
 function localHasGnss(snapshot) {
   const source = fallbackPositionSourceForSnapshot(snapshot);
   return source === "GNSS" && fallbackPositionValid(source, snapshot?.position_valid, snapshot?.position_degraded);
@@ -1399,10 +1407,10 @@ function localHasGnss(snapshot) {
 function evidenceAgeForNode(id, peer, quality, obs) {
   if (id === currentNodeId && lastSnapshot) return 0;
   const ages = [];
-  if (peer && hasNumber(peer.telemetry_age_ms)) ages.push(Number(peer.telemetry_age_ms));
+  if (peerHasLiveEvidence(peer) && hasNumber(peer.telemetry_age_ms)) ages.push(Number(peer.telemetry_age_ms));
   const qualityAge = recordAgeMs(quality);
   if (qualityAge !== null) ages.push(qualityAge);
-  if (obs?.updatedAt) ages.push(Date.now() - obs.updatedAt);
+  if (obs?.state === "ok" && obs.updatedAt) ages.push(Date.now() - obs.updatedAt);
   return ages.length ? Math.min(...ages) : null;
 }
 
@@ -1467,7 +1475,6 @@ function ingestSnapshotPeerRanges(s) {
   discoverNode(nodeId);
   for (const p of s.peers || []) {
     if (!isNodeId(p.id)) continue;
-    discoverNode(p.id);
     if (p.range_valid) {
       recordObservation({
         fromId: nodeId,
@@ -1480,14 +1487,15 @@ function ingestSnapshotPeerRanges(s) {
         source: "snapshot",
         discover: true,
       });
-    } else if (!observationForPair(nodeId, p.id)) {
+    } else if (peerHasLiveEvidence(p) && !observationForPair(nodeId, p.id)) {
+      discoverNode(p.id);
       recordObservation({
         fromId: nodeId,
         toId: p.id,
         state: "stale",
         note: "snapshot stale",
         source: "snapshot",
-        discover: true,
+        discover: false,
       });
     }
   }

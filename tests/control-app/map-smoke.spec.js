@@ -73,6 +73,50 @@ test("records typed and text telemetry to downloadable NDJSON", async ({ page })
   expect(lines[3]).toMatchObject({ type: "range", from_id: 1, to_id: 3, ok: true, range_mm: 4300 });
 });
 
+test("failed scans do not make offline nodes look present", async ({ page }) => {
+  await page.goto("/index.html");
+
+  await page.evaluate(() => {
+    render({
+      t: 1000,
+      node: { id: 0, name: "node-0", gps: true, mock: false },
+      mode: "GNSS_NAV_OK",
+      sol: "LOCAL_GNSS",
+      src: "LOCAL_GNSS",
+      reject: "NONE",
+      pos: { lat_e7: 504520000, lon_e7: 305260000, alt_mm: 0 },
+      num_anchors: 0,
+      position_source: "GNSS",
+      position_valid: true,
+      position_degraded: false,
+      peers: [1, 2, 3].map((id) => ({
+        id,
+        gnss: false,
+        lat_e7: 0,
+        lon_e7: 0,
+        alt_mm: 0,
+        position_source: "NONE",
+        position_valid: false,
+        position_degraded: false,
+        telemetry_age_ms: 0,
+        range_mm: 0,
+        range_valid: false,
+      })),
+    });
+
+    for (const id of [1, 2, 3]) {
+      handleLine(`t=1200ms [WARN] [RANGE] range_result ok=false from=0 to=${id} request_id=${id} range_fail_reason=TIMEOUT`);
+    }
+  });
+
+  await expect(page.locator("#fieldChecklist tr")).toHaveCount(4);
+  await expect(page.locator("#fieldChecklist tr").nth(0).locator("td").nth(1)).toHaveText(/fresh/);
+  for (const index of [1, 2, 3]) {
+    await expect(page.locator("#fieldChecklist tr").nth(index).locator("td").nth(1)).toHaveText("missing");
+    await expect(page.locator("#fieldChecklist tr").nth(index).locator("td").nth(3)).toHaveText("fail");
+  }
+});
+
 async function expectMarkersInsideMap(page) {
   await expect.poll(async () => page.evaluate(() => {
     const mapBox = document.querySelector("#map")?.getBoundingClientRect();
