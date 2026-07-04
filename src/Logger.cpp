@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "StatusLed.h"
 #include "nav/nav_serial_json.h"
 
 #ifndef LOG_LEVEL
@@ -82,6 +83,7 @@ void writeLine(const char *line) {
   fwrite(line, 1, strlen(line), stdout);
   fwrite("\r\n", 1, 2, stdout);
   fflush(stdout);
+  StatusLed::pulse();
 
   if (gLoggerMutex != nullptr) {
     xSemaphoreGive(gLoggerMutex);
