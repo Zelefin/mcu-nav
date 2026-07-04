@@ -29,6 +29,8 @@ nav_config_t nav_config_default(uint8_t local_node_id)
         .degraded_anchor_triangle_area_m2 = 1000.0f,
         .demo_force_gps_denied = false,
         .allow_gnss_altitude_in_demo_forced_denied = false,
+        .ignore_altitude_for_radio_solve = false,
+        .retain_last_range_on_failure = false,
     };
     return config;
 }
@@ -393,7 +395,8 @@ static void attempt_radio_solution(nav_system_t *sys, uint32_t now_ms)
     for (size_t i = 0u; i < NAV_TRILAT_ANCHOR_COUNT; ++i) {
         trilat_anchors[i].lat_deg = (double)selection.anchors[i].lat_e7 / 10000000.0;
         trilat_anchors[i].lon_deg = (double)selection.anchors[i].lon_e7 / 10000000.0;
-        trilat_anchors[i].alt_m = (double)selection.anchors[i].alt_mm / 1000.0;
+        trilat_anchors[i].alt_m =
+            sys->config.ignore_altitude_for_radio_solve ? 0.0 : (double)selection.anchors[i].alt_mm / 1000.0;
         trilat_anchors[i].distance_m = (double)selection.anchors[i].range_mm / 1000.0;
         trilat_anchors[i].node_id = selection.anchors[i].node_id;
         average_anchor_quality += selection.anchors[i].quality / (float)NAV_TRILAT_ANCHOR_COUNT;
@@ -412,7 +415,11 @@ static void attempt_radio_solution(nav_system_t *sys, uint32_t now_ms)
 
     nav_trilat_result_t result;
     const nav_trilat_status_t trilat_status =
-        nav_trilat_solve_3_anchor_altitude(trilat_anchors, (double)altitude.alt_mm / 1000.0, &result);
+        nav_trilat_solve_3_anchor_altitude(
+            trilat_anchors,
+            sys->config.ignore_altitude_for_radio_solve ? 0.0 : (double)altitude.alt_mm / 1000.0,
+            &result
+        );
     if (trilat_status != NAV_TRILAT_OK) {
         set_rejected_snapshot(sys, now_ms, NAV_REJECT_TRILATERATION_FAILED, NAV_MODE_NO_NAV_SOLUTION);
         copy_selection_to_snapshot(&sys->snapshot, &selection);
@@ -642,7 +649,9 @@ void nav_core_handle_event(nav_system_t *sys, const nav_event_t *event)
             .timestamp_ms = event->data.range_failure.timestamp_ms,
             .valid = false,
         };
-        (void)nav_peer_table_update_range(&sys->peer_table, &failed, now_ms);
+        if (!sys->config.retain_last_range_on_failure) {
+            (void)nav_peer_table_update_range(&sys->peer_table, &failed, now_ms);
+        }
         (void)snprintf(
             message,
             sizeof(message),

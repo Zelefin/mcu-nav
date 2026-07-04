@@ -272,6 +272,43 @@ void sanitizeReportText(char *text) {
   }
 }
 
+void ingestLocalEndpointAirReport(const nav_serial_range_record_t &record) {
+  NodeConfig config = {};
+  if (!ControlChannel::getConfig(&config)) {
+    return;
+  }
+  if (record.from_id != config.nodeId && record.to_id != config.nodeId) {
+    return;
+  }
+
+  const uint8_t peerId = record.from_id == config.nodeId ? record.to_id : record.from_id;
+  if (peerId == config.nodeId || !isValidNodeId(peerId)) {
+    return;
+  }
+
+  nav_event_t event = {};
+  event.timestamp_ms = record.timestamp_ms;
+  if (record.ok) {
+    event.type = NAV_EVT_RANGE_RESULT;
+    event.data.range_result.peer_id = peerId;
+    event.data.range_result.request_id = record.request_id;
+    event.data.range_result.timestamp_ms = record.timestamp_ms;
+    event.data.range_result.range_mm = record.range_mm;
+    event.data.range_result.range_sigma_mm = record.range_sigma_mm;
+    event.data.range_result.rssi_dbm = record.rssi_dbm;
+    event.data.range_result.snr_db = record.snr_db;
+    event.data.range_result.valid = true;
+  } else {
+    event.type = NAV_EVT_RANGE_FAIL;
+    event.data.range_failure.peer_id = peerId;
+    event.data.range_failure.request_id = record.request_id;
+    event.data.range_failure.timestamp_ms = record.timestamp_ms;
+    event.data.range_failure.reason =
+        record.range_fail_reason == NAV_RANGE_FAIL_NONE ? NAV_RANGE_FAIL_UNKNOWN : record.range_fail_reason;
+  }
+  (void)ControlChannel::handleEvent(&event);
+}
+
 bool waitBusyLow(uint32_t timeoutMs) {
   const uint32_t startedMs = nowMs();
   while (readPin(PIN_LORA_BUSY) != 0) {
@@ -495,6 +532,7 @@ void serviceReportRx(uint8_t nodeId, uint32_t windowMs, DebugTelemetryState *deb
                                static_cast<int16_t>(std::lround(reportSnr)),
                                &rangeRecord)) {
       (void)ControlChannel::emitRangeRecord(&rangeRecord);
+      ingestLocalEndpointAirReport(rangeRecord);
     }
     return;
   }

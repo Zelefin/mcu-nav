@@ -47,7 +47,8 @@ pio run -e speedybee
 {"cmd":"gps","enabled":true}
 ```
 
-4. For the same-height field test, leave the default local altitude at `0 mm`.
+4. For the current same-height field display test, the ESP field build flattens
+   radio-solver altitude and leaves the default local altitude at `0 mm`.
    Only set altitude manually when intentionally testing non-default altitude:
 
 ```json
@@ -96,14 +97,19 @@ Also capture the residual and geometry diagnostics:
 
 ## Expected Result
 
-With three GNSS-valid anchors, three local ranges inside the field evidence
-window, and local altitude,
+With three GNSS-valid anchors and three local-endpoint ranges inside the field
+evidence window,
 the GPS-disabled local node should report:
 
 - `solution_status` equal to `RADIO_3D`
 - `solution_source` equal to `RADIO_3D`
 - `reject_reason` equal to `NONE`
 - residual and geometry diagnostics present in snapshots and logs
+
+For this bring-up mode, residual thresholds are intentionally permissive so a
+rough `RADIO_3D` position can be displayed before range calibration is complete.
+Ranging failures are still logged, but they do not erase the last successful
+local-endpoint range until its 30 second evidence window expires.
 
 If the solve is rejected, use `docs/debug_playbook.md` to separate navigation
 `reject_reason` values such as `NOT_ENOUGH_ANCHORS`, `STALE_RANGE`,

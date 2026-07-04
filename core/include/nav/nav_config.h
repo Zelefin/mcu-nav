@@ -22,6 +22,8 @@ typedef struct {
     float degraded_anchor_triangle_area_m2;
     bool demo_force_gps_denied;
     bool allow_gnss_altitude_in_demo_forced_denied;
+    bool ignore_altitude_for_radio_solve;
+    bool retain_last_range_on_failure;
 } nav_config_t;
 
 nav_config_t nav_config_default(uint8_t local_node_id);

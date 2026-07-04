@@ -81,8 +81,14 @@ void initCoreForConfig() {
   cfg.telemetry_ttl_ms = kHardwareTelemetryTtlMs;
   cfg.range_ttl_ms = kHardwareRangeTtlMs;
   cfg.local_altitude_ttl_ms = kHardwareLocalAltitudeTtlMs;
+  cfg.min_anchor_quality = 0.0f;
+  cfg.min_solution_quality = 0.0f;
+  cfg.max_residual_rms_m = 100000.0f;
+  cfg.max_residual_m = 100000.0f;
   cfg.min_anchor_triangle_area_m2 = 10.0f;
   cfg.degraded_anchor_triangle_area_m2 = 100.0f;
+  cfg.ignore_altitude_for_radio_solve = true;
+  cfg.retain_last_range_on_failure = true;
   nav_core_init(&gNav, &cfg);
   applyCoreConfig();
   std::memset(gNodeQuality, 0, sizeof(gNodeQuality));

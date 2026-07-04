@@ -71,13 +71,17 @@ sequenceDiagram
 
 Third-party pair observations are for network health, diagnostics, replay, and
 `telemetry-ui/`. They do not make a peer usable as an anchor for the local solver
-unless one endpoint of the range is the local node.
+unless one endpoint of the range is the local node. In the ESP field build, an
+overheard best-effort report for a local endpoint is converted into the same
+peer-range evidence as a locally initiated ranging result.
 
 When a local-to-peer range is accepted, the peer table locks the peer coordinate
 that was current at that range update. Later beacon updates may refresh the
 diagnostic peer position, but anchor selection continues using the range-paired
 coordinate until a newer range arrives. This avoids a `RADIO_3D` solve that
 combines one timestamp's coordinates with another timestamp's distance.
+The ESP field build keeps the last successful local-endpoint range through
+subsequent ranging failures until the configured range TTL expires.
 
 The current ESP32 distance-only firmware implements this as a bring-up path:
 after each local SX1280 ranging attempt, the ranging master broadcasts a compact

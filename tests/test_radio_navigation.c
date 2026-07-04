@@ -157,6 +157,35 @@ static void send_altitude(nav_system_t *sys)
     nav_core_handle_event(sys, &event);
 }
 
+static void send_altitude_mm(nav_system_t *sys, int32_t alt_mm)
+{
+    nav_event_t event = altitude_event(1000u);
+    event.data.local_altitude.alt_mm = alt_mm;
+    nav_core_handle_event(sys, &event);
+}
+
+static void send_peer_at(nav_system_t *sys, uint8_t node_id, nav_position_t position, uint32_t range_mm)
+{
+    nav_event_t event = {
+        .type = NAV_EVT_PEER_TELEMETRY_RX,
+        .timestamp_ms = 1000u,
+        .data.peer_beacon_rx = {
+            .telemetry = {0},
+            .rssi_dbm = -70,
+            .snr_db = 7,
+        },
+    };
+    event.data.peer_beacon_rx.telemetry = sample_telemetry(node_id);
+    event.data.peer_beacon_rx.telemetry.position = position;
+    nav_core_handle_event(sys, &event);
+
+    event.type = NAV_EVT_RANGE_RESULT;
+    event.data.range_result = sample_range(node_id);
+    event.data.range_result.range_mm = range_mm;
+    event.data.range_result.range_sigma_mm = 1000u;
+    nav_core_handle_event(sys, &event);
+}
+
 static void send_peer(nav_system_t *sys, uint8_t node_id, bool telemetry_valid, bool range_valid)
 {
     nav_event_t event = {
@@ -361,6 +390,30 @@ static void test_radio_solution_residual_rejected(void)
     CHECK(logs_contain(&logs, "reason=RANGE_OUTLIER"));
 }
 
+static void test_field_display_mode_ignores_altitude_and_accepts_rough_ranges(void)
+{
+    nav_system_t sys;
+    log_capture_t logs = {0};
+    init_system(&sys, &logs);
+    sys.config.min_anchor_quality = 0.0f;
+    sys.config.min_solution_quality = 0.0f;
+    sys.config.max_residual_rms_m = 100000.0f;
+    sys.config.max_residual_m = 100000.0f;
+    sys.config.ignore_altitude_for_radio_solve = true;
+
+    send_altitude_mm(&sys, 0);
+    send_peer_at(&sys, 1u, (nav_position_t){.lat_e7 = 504349952, .lon_e7 = 304228555, .alt_mm = 179200}, 35021u);
+    send_peer_at(&sys, 2u, (nav_position_t){.lat_e7 = 504347040, .lon_e7 = 304232377, .alt_mm = 175600}, 50661u);
+    send_peer_at(&sys, 3u, (nav_position_t){.lat_e7 = 504356508, .lon_e7 = 304233675, .alt_mm = 177100}, 71913u);
+
+    nav_snapshot_t snapshot = tick_and_snapshot(&sys, 1000u);
+    CHECK(snapshot.solution_source == NAV_SOURCE_RADIO_3D);
+    CHECK(snapshot.solution_status == NAV_SOLUTION_RADIO_3D || snapshot.solution_status == NAV_SOLUTION_DEGRADED);
+    CHECK(snapshot.num_anchors == 3u);
+    CHECK(snapshot.position.alt_mm == 0);
+    CHECK(logs_contain(&logs, "solve_succeeded"));
+}
+
 static void test_beacon_rx_metadata_reaches_peer_diagnostics(void)
 {
     nav_system_t sys;
@@ -443,6 +496,33 @@ static void test_range_failure_uses_range_fail_reason(void)
     CHECK(logs_contain(&logs, "range_fail_reason=TIMEOUT"));
 }
 
+static void test_range_failure_can_retain_last_valid_range(void)
+{
+    nav_system_t sys;
+    log_capture_t logs = {0};
+    init_system(&sys, &logs);
+    sys.config.retain_last_range_on_failure = true;
+    send_peer(&sys, 1u, true, true);
+
+    nav_event_t event = {
+        .type = NAV_EVT_RANGE_FAIL,
+        .timestamp_ms = 1100u,
+        .data.range_failure = {
+            .peer_id = 1u,
+            .request_id = 99u,
+            .timestamp_ms = 1100u,
+            .reason = NAV_RANGE_FAIL_TIMEOUT,
+        },
+    };
+    nav_core_handle_event(&sys, &event);
+
+    const nav_peer_state_t *peer = nav_peer_table_get_const(&sys.peer_table, 1u);
+    CHECK(peer != NULL);
+    CHECK(peer->range_valid);
+    CHECK(peer->last_range_request_id == sample_range(1u).request_id);
+    CHECK(logs_contain(&logs, "range_fail_reason=TIMEOUT"));
+}
+
 static void test_radio_3d_reject_bad_position(void)
 {
     nav_system_t sys;
@@ -485,9 +565,11 @@ int main(void)
     RUN_TEST(test_radio_3d_reject_missing_altitude);
     RUN_TEST(test_forced_denied_ignores_local_gnss_position);
     RUN_TEST(test_radio_solution_residual_rejected);
+    RUN_TEST(test_field_display_mode_ignores_altitude_and_accepts_rough_ranges);
     RUN_TEST(test_beacon_rx_metadata_reaches_peer_diagnostics);
     RUN_TEST(test_packet_seq_and_request_id_are_not_mixed);
     RUN_TEST(test_range_failure_uses_range_fail_reason);
+    RUN_TEST(test_range_failure_can_retain_last_valid_range);
     RUN_TEST(test_radio_3d_reject_bad_position);
     return 0;
 }

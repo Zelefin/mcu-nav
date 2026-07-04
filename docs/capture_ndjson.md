@@ -153,8 +153,10 @@ A firmware text log line, retained for context and OTA-path debugging.
 
 ## Notes for readers / the analyzer
 
-- Treat `node_quality` and `range` (`source=air_report`) as **diagnostics with
-  freshness**; they are never anchor inputs to a solver.
+- Treat `node_quality` and peer-to-peer `range` records (`source=air_report`) as
+  **diagnostics with freshness**. An overheard `source=air_report` range may feed
+  the connected node's solver only when one endpoint is the connected node;
+  third-party pairs remain diagnostic.
 - Apparent packet loss for a node can be estimated from gaps in `packet_seq`
   across its `node_quality`/beacon records.
 - A capture may contain **no** `RADIO_3D` solutions (distance-only runs); in that
