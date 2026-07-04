@@ -145,6 +145,13 @@ A narrower bring-up step that proves SX1280 distance measurements between
 modules without GNSS positions or a radio navigation solution.
 _Avoid_: Trilateration, GPS-denied navigation, `RADIO_3D`
 
+**Recoverable radio bring-up**:
+An ESP node state where SX1280 initialization failed but the radio task remains
+alive, reports `RADIO=FAIL`, and retries initialization until the radio becomes
+usable. Once initialization succeeds, the node enters the normal ranging startup
+schedule.
+_Avoid_: Terminal boot self-test, permanent radio failure
+
 **Ranging master**:
 The SX1280 ranging role that initiates a ranging exchange and owns the readable
 distance result.

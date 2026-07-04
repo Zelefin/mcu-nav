@@ -34,7 +34,10 @@ ESP32 + SX1280 + GPS. See "Single-node development" and "Control app" below.
 
 Radio summary is `WARN` until a ranging exchange succeeds. With only one board
 powered, `RADIO=WARN` after successful radio initialization is expected because
-no addressed ranging slave can answer.
+no addressed ranging slave can answer. `RADIO=FAIL` means SX1280 initialization
+is not usable yet; the ESP radio task retries BUSY/init failures every 5 seconds
+with an SX128x reset pulse and enters the normal staggered ranging schedule if a
+retry succeeds.
 
 ### Supported Boards
 
@@ -229,6 +232,9 @@ The fixed ranging profile is 2445 MHz, SF7, 1625 kHz bandwidth, coding rate
 - Check SCK/MISO/MOSI/CS wiring for the selected PlatformIO environment.
 - Check RST and BUSY wiring; SX128x init can fail if either is wrong.
 - Confirm the module is SX1280/SX1281-compatible.
+- Leave the node powered for at least two health-summary periods. `RADIO=FAIL`
+  retries SX128x init every 5 seconds with a reset pulse; a transient power/reset
+  timing failure may recover to `RADIO=WARN` without a manual reset.
 
 #### Radio BUSY Stuck HIGH
 

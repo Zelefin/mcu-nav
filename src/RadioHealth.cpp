@@ -43,6 +43,7 @@ constexpr uint32_t kMasterScanIntervalMs = 3200u;
 constexpr uint32_t kInitialMasterDelayMs = 1000u;
 constexpr uint32_t kMasterTurnSpacingMs = 700u;
 constexpr uint32_t kConfigPollMs = 250u;
+constexpr uint32_t kRadioInitRetryMs = 5000u;
 constexpr uint32_t kRangeSigmaMm = 1000u;
 constexpr size_t kRangeReportPayloadMax = 224u;
 
@@ -129,12 +130,42 @@ void configureInputPin(int pin) {
   gpio_config(&config);
 }
 
+void configureOutputPin(int pin, int level) {
+  if (pin < 0 || pin >= GPIO_NUM_MAX) {
+    return;
+  }
+  gpio_config_t config = {};
+  config.pin_bit_mask = (1ULL << pin);
+  config.mode = GPIO_MODE_OUTPUT;
+  config.pull_up_en = GPIO_PULLUP_DISABLE;
+  config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  config.intr_type = GPIO_INTR_DISABLE;
+  gpio_config(&config);
+  gpio_set_level(static_cast<gpio_num_t>(pin), level);
+}
+
 void delayMs(uint32_t ms) {
   TickType_t ticks = pdMS_TO_TICKS(ms);
   if (ticks == 0) {
     ticks = 1;
   }
   vTaskDelay(ticks);
+}
+
+void pulseRadioReset(uint32_t attempt) {
+  if (PIN_LORA_RST < 0 || PIN_LORA_RST >= GPIO_NUM_MAX) {
+    return;
+  }
+  Logger::infof("RADIO",
+                "Pulsing SX128x reset before init attempt=%lu rst_pin=%d",
+                static_cast<unsigned long>(attempt),
+                PIN_LORA_RST);
+  configureOutputPin(PIN_LORA_RST, 1);
+  delayMs(2);
+  gpio_set_level(static_cast<gpio_num_t>(PIN_LORA_RST), 0);
+  delayMs(10);
+  gpio_set_level(static_cast<gpio_num_t>(PIN_LORA_RST), 1);
+  delayMs(20);
 }
 
 const char *rangeFailReasonName(nav_range_fail_reason_t reason) {
@@ -888,11 +919,12 @@ void serviceNetworkListen(uint8_t nodeId, uint32_t listenWindowMs, DebugTelemetr
   }
 }
 
-void initRadio() {
+bool initRadio(uint32_t attempt) {
   configureInputPin(PIN_LORA_BUSY);
   configureInputPin(PIN_LORA_DIO1);
+  pulseRadioReset(attempt);
 
-  Logger::infof("RADIO", "Initializing SX128x distance-only ranging");
+  Logger::infof("RADIO", "Initializing SX128x distance-only ranging attempt=%lu", static_cast<unsigned long>(attempt));
   Logger::infof("RADIO",
                 "ranging_profile freq=%.1f MHz bw=%.1f kHz sf=%u cr=4/%u sync=private power=%d dBm",
                 static_cast<double>(kRangingFrequencyMhz),
@@ -902,10 +934,14 @@ void initRadio() {
                 static_cast<int>(kRangingTxPowerDbm));
 
   if (!waitBusyLow(1000)) {
+    gStatus.initialized = false;
     gStatus.lastError = RADIOLIB_ERR_SPI_CMD_TIMEOUT;
     publishStatus(HealthState::Fail);
-    Logger::failf("RADIO", "BUSY pin stayed HIGH before init");
-    vTaskDelete(nullptr);
+    Logger::failf("RADIO",
+                  "BUSY pin stayed HIGH before init attempt=%lu retry_in_ms=%lu",
+                  static_cast<unsigned long>(attempt),
+                  static_cast<unsigned long>(kRadioInitRetryMs));
+    return false;
   }
 
   const int16_t state = radio.begin(kRangingFrequencyMhz,
@@ -917,20 +953,30 @@ void initRadio() {
                                     kRangingPreambleLen);
   gStatus.lastError = state;
   if (state != RADIOLIB_ERR_NONE) {
+    gStatus.initialized = false;
     publishStatus(HealthState::Fail);
-    Logger::failf("RADIO", "SX128x ranging init failed, code=%d", state);
-    vTaskDelete(nullptr);
+    Logger::failf("RADIO",
+                  "SX128x ranging init failed, code=%d attempt=%lu retry_in_ms=%lu",
+                  state,
+                  static_cast<unsigned long>(attempt),
+                  static_cast<unsigned long>(kRadioInitRetryMs));
+    return false;
   }
 
   gStatus.initialized = true;
   publishStatus(HealthState::Warn);
-  Logger::okf("RADIO", "SX128x ranging initialized");
+  Logger::okf("RADIO", "SX128x ranging initialized attempt=%lu", static_cast<unsigned long>(attempt));
+  return true;
 }
 
 }  // namespace
 
 extern "C" void RadioHealthTask(void *) {
-  initRadio();
+  uint32_t initAttempt = 1u;
+  while (!initRadio(initAttempt)) {
+    ++initAttempt;
+    delayMs(kRadioInitRetryMs);
+  }
 
   NodeConfig config;
   uint8_t lastNodeId = NAV_INVALID_NODE_ID;
