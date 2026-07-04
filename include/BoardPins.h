@@ -41,6 +41,15 @@
 #ifndef PIN_NOT_CONNECTED
 #define PIN_NOT_CONNECTED (-1)
 #endif
+#ifndef PIN_STATUS_LED
+#define PIN_STATUS_LED PIN_NOT_CONNECTED
+#endif
+#ifndef PIN_STATUS_LED_ACTIVE_HIGH
+#define PIN_STATUS_LED_ACTIVE_HIGH 1
+#endif
+#ifndef PIN_STATUS_RGB_LED
+#define PIN_STATUS_RGB_LED PIN_NOT_CONNECTED
+#endif
 
 #if defined(TARGET_NODEMCU_32S) && TARGET_NODEMCU_32S
 static_assert(PIN_LORA_SCK == 18, "Wrong NodeMCU-32S LORA SCK pin");
@@ -97,4 +106,8 @@ static constexpr int loraDio3 = PIN_LORA_DIO3;
 
 static constexpr int gpsRx = PIN_GPS_RX;
 static constexpr int gpsTx = PIN_GPS_TX;
+
+static constexpr int statusLed = PIN_STATUS_LED;
+static constexpr bool statusLedActiveHigh = PIN_STATUS_LED_ACTIVE_HIGH != 0;
+static constexpr int statusRgbLed = PIN_STATUS_RGB_LED;
 }  // namespace BoardPins

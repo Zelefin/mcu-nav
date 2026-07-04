@@ -6,6 +6,7 @@ idf_component_register(
         "RadioHealth.cpp"
         "NodeConfig.cpp"
         "ControlChannel.cpp"
+        "StatusLed.cpp"
         "main.cpp"
         # Portable navigation core (C11), reused as-is on device.
         "../core/src/nav_core.c"
@@ -27,6 +28,7 @@ idf_component_register(
     REQUIRES
         RadioLib
         driver
+        esp_driver_rmt
         esp_timer
         nvs_flash
 )

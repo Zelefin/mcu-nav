@@ -3,6 +3,7 @@
 #include "HealthStatus.h"
 #include "Logger.h"
 #include "NodeConfig.h"
+#include "StatusLed.h"
 
 #include <stdio.h>
 
@@ -76,6 +77,7 @@ extern "C" void app_main(void) {
   vTaskDelay(pdMS_TO_TICKS(1500));
 
   Logger::begin();
+  StatusLed::begin();
   HealthStatus::begin();
 
   Logger::infof("SYSTEM", "Booting firmware");

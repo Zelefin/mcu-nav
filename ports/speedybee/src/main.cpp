@@ -96,7 +96,9 @@ SX1280 gRadio(PIN_RADIO_NSS, PIN_RADIO_RST, PIN_RADIO_BUSY);
 char gLine[256];
 size_t gLineLen = 0;
 uint32_t gLastSnapshotMs = 0;
+uint32_t gStatusLedUntilMs = 0;
 bool gDebugEnabled = false;
+bool gStatusLedOn = false;
 uint32_t gLocalQualityPacketSeq = 0;
 bool gRadioReady = false;
 uint16_t gRadioFrameSeq = 0;
@@ -300,6 +302,9 @@ void initCoreForConfig() {
 void printRecord(const char *buf, int written, size_t cap) {
   if (written >= 0 && static_cast<size_t>(written) < cap) {
     Serial.println(buf);
+    digitalWrite(PIN_LED, HIGH);
+    gStatusLedOn = true;
+    gStatusLedUntilMs = millis() + 40u;
   }
 }
 
@@ -1157,6 +1162,10 @@ void emitRecords(uint32_t now) {
 void serviceControlChannel() {
   pumpSerial();
   const uint32_t now = millis();
+  if (gStatusLedOn && static_cast<int32_t>(now - gStatusLedUntilMs) >= 0) {
+    digitalWrite(PIN_LED, LOW);
+    gStatusLedOn = false;
+  }
   if (now - gLastSnapshotMs >= kSnapshotPeriodMs) {
     gLastSnapshotMs = now;
     emitRecords(now);
@@ -1167,6 +1176,8 @@ void serviceControlChannel() {
 
 void setup() {
   Serial.begin(kBaud);
+  pinMode(PIN_LED, OUTPUT);
+  digitalWrite(PIN_LED, LOW);
   EEPROM.begin(sizeof(PersistConfig) + 8);
   loadConfig();
   initCoreForConfig();
