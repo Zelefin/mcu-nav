@@ -78,6 +78,10 @@ Skipped solve:
 t=1200 level=DEBUG cat=SOLUTION event=solve_skipped reason=CADENCE elapsed_ms=200 interval_ms=500
 ```
 
+The snapshot also carries structured `radio_solve` diagnostics so captures can
+distinguish `SOLVED`, `REJECTED`, `SKIPPED_CADENCE`, and
+`SKIPPED_UNCHANGED_INPUTS` without relying on debug-level text logs.
+
 Solve failure:
 
 ```text

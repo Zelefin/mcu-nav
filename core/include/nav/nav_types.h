@@ -93,6 +93,15 @@ typedef enum {
     NAV_RANGE_FAIL_UNKNOWN
 } nav_range_fail_reason_t;
 
+typedef enum {
+    NAV_RADIO_SOLVE_NONE = 0,
+    NAV_RADIO_SOLVE_GNSS_DIRECT,
+    NAV_RADIO_SOLVE_SOLVED,
+    NAV_RADIO_SOLVE_REJECTED,
+    NAV_RADIO_SOLVE_SKIPPED_CADENCE,
+    NAV_RADIO_SOLVE_SKIPPED_UNCHANGED_INPUTS
+} nav_radio_solve_outcome_t;
+
 typedef struct {
     int32_t lat_e7;
     int32_t lon_e7;
@@ -244,6 +253,12 @@ typedef struct {
     uint32_t local_gnss_hacc_mm;
     uint32_t local_gnss_vacc_mm;
     nav_position_t local_gnss_position;
+    nav_radio_solve_outcome_t radio_solve_outcome;
+    uint32_t radio_solve_age_ms;
+    uint32_t radio_solve_elapsed_ms;
+    uint32_t radio_solve_interval_ms;
+    uint32_t radio_solve_generation;
+    uint32_t radio_solve_last_generation;
 } nav_snapshot_t;
 
 #ifdef __cplusplus

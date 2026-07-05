@@ -179,6 +179,8 @@ the best three by quality are selected; overdetermined WLS is future work.
 - local altitude validity/source
 - local GNSS evidence for comparison, including fix health, position, age, and
   whether it was used by the accepted solution
+- radio solve diagnostics, including latest solve outcome, cadence age,
+  configured interval, and input generation counters
 - `total_quality`
 
 ## Config Thresholds

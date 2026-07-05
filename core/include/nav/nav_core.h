@@ -25,6 +25,8 @@ typedef struct {
     uint32_t radio_solve_generation;
     uint32_t last_radio_solve_generation;
     bool radio_solve_ran;
+    nav_radio_solve_outcome_t last_radio_solve_outcome;
+    uint32_t last_radio_solve_elapsed_ms;
 } nav_system_t;
 
 void nav_core_init(nav_system_t *sys, const nav_config_t *config);

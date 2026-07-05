@@ -76,6 +76,12 @@ static void test_write(void)
     snapshot.local_gnss_hacc_mm = 1100u;
     snapshot.local_gnss_vacc_mm = 2100u;
     snapshot.local_gnss_position = (nav_position_t){504519990, 305260010, 183400};
+    snapshot.radio_solve_outcome = NAV_RADIO_SOLVE_SKIPPED_CADENCE;
+    snapshot.radio_solve_age_ms = 200u;
+    snapshot.radio_solve_elapsed_ms = 200u;
+    snapshot.radio_solve_interval_ms = 500u;
+    snapshot.radio_solve_generation = 7u;
+    snapshot.radio_solve_last_generation = 6u;
 
     nav_peer_table_t peers;
     nav_peer_table_init(&peers);
@@ -138,6 +144,9 @@ static void test_write(void)
     assert(strstr(buf, "\"used\":false") != NULL);
     assert(strstr(buf, "\"fix_type\":\"3D\"") != NULL);
     assert(strstr(buf, "\"lat_e7\":504519990") != NULL);
+    assert(strstr(buf, "\"radio_solve\":{\"outcome\":\"SKIPPED_CADENCE\"") != NULL);
+    assert(strstr(buf, "\"interval_ms\":500") != NULL);
+    assert(strstr(buf, "\"generation\":7") != NULL);
     assert(strstr(buf, "\"lat_e7\":504520000") != NULL);
     assert(strstr(buf, "\"id\":1") != NULL);
     assert(strstr(buf, "\"position_source\":\"GNSS\"") != NULL);

@@ -374,6 +374,7 @@ static void test_forced_denied_ignores_local_gnss_position(void)
     CHECK(snapshot.local_gnss_position.lat_e7 == event.data.local_gnss.position.lat_e7);
     CHECK(snapshot.local_gnss_position.lon_e7 == event.data.local_gnss.position.lon_e7);
     CHECK(snapshot.local_gnss_position.alt_mm == event.data.local_gnss.position.alt_mm);
+    CHECK(snapshot.radio_solve_outcome == NAV_RADIO_SOLVE_SOLVED);
 }
 
 static void test_radio_solve_runs_only_on_tick_cadence(void)
@@ -397,12 +398,15 @@ static void test_radio_solve_runs_only_on_tick_cadence(void)
     CHECK(cadence_skip.position.lat_e7 == first.position.lat_e7);
     CHECK(cadence_skip.local_gnss_present);
     CHECK(!cadence_skip.local_gnss_used);
+    CHECK(cadence_skip.radio_solve_outcome == NAV_RADIO_SOLVE_SKIPPED_CADENCE);
+    CHECK(cadence_skip.radio_solve_elapsed_ms == 200u);
     CHECK(logs_count(&logs, "solve_succeeded") == 1u);
     CHECK(logs_contain(&logs, "reason=CADENCE"));
 
     nav_snapshot_t unchanged_skip = tick_and_snapshot(&sys, 1600u);
     CHECK(unchanged_skip.solution_status == NAV_SOLUTION_RADIO_3D);
     CHECK(unchanged_skip.position.lat_e7 == first.position.lat_e7);
+    CHECK(unchanged_skip.radio_solve_outcome == NAV_RADIO_SOLVE_SKIPPED_UNCHANGED_INPUTS);
     CHECK(logs_count(&logs, "solve_succeeded") == 1u);
     CHECK(logs_contain(&logs, "reason=UNCHANGED_INPUTS"));
 }

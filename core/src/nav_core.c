@@ -111,6 +111,23 @@ static void populate_local_gnss_evidence(nav_system_t *sys, uint32_t now_ms)
     sys->snapshot.local_gnss_position = sys->local_gnss.position;
 }
 
+static void populate_radio_solve_diagnostics(
+    nav_system_t *sys,
+    uint32_t now_ms,
+    nav_radio_solve_outcome_t outcome,
+    uint32_t elapsed_ms
+)
+{
+    sys->last_radio_solve_outcome = outcome;
+    sys->last_radio_solve_elapsed_ms = elapsed_ms;
+    sys->snapshot.radio_solve_outcome = outcome;
+    sys->snapshot.radio_solve_age_ms = sys->radio_solve_ran ? now_ms - sys->last_radio_solve_ms : 0u;
+    sys->snapshot.radio_solve_elapsed_ms = elapsed_ms;
+    sys->snapshot.radio_solve_interval_ms = sys->config.radio_solve_interval_ms;
+    sys->snapshot.radio_solve_generation = sys->radio_solve_generation;
+    sys->snapshot.radio_solve_last_generation = sys->last_radio_solve_generation;
+}
+
 static void mark_radio_solve_inputs_changed(nav_system_t *sys)
 {
     ++sys->radio_solve_generation;
@@ -392,12 +409,19 @@ static void set_rejected_snapshot(nav_system_t *sys, uint32_t now_ms, nav_reject
     sys->snapshot.vacc_mm = 0u;
 }
 
-static void reuse_previous_radio_snapshot(nav_system_t *sys, const nav_snapshot_t *previous, uint32_t now_ms)
+static void reuse_previous_radio_snapshot(
+    nav_system_t *sys,
+    const nav_snapshot_t *previous,
+    uint32_t now_ms,
+    nav_radio_solve_outcome_t outcome,
+    uint32_t elapsed_ms
+)
 {
     sys->snapshot = *previous;
     sys->snapshot.time_ms = now_ms;
     sys->snapshot.node_id = sys->config.local_node_id;
     populate_local_gnss_evidence(sys, now_ms);
+    populate_radio_solve_diagnostics(sys, now_ms, outcome, elapsed_ms);
 }
 
 static void attempt_radio_solution(nav_system_t *sys, uint32_t now_ms, const nav_snapshot_t *previous)
@@ -406,7 +430,7 @@ static void attempt_radio_solution(nav_system_t *sys, uint32_t now_ms, const nav
     if (sys->radio_solve_ran) {
         const uint32_t elapsed_ms = now_ms - sys->last_radio_solve_ms;
         if (sys->config.radio_solve_interval_ms > 0u && elapsed_ms < sys->config.radio_solve_interval_ms) {
-            reuse_previous_radio_snapshot(sys, previous, now_ms);
+            reuse_previous_radio_snapshot(sys, previous, now_ms, NAV_RADIO_SOLVE_SKIPPED_CADENCE, elapsed_ms);
             (void)snprintf(
                 message,
                 sizeof(message),
@@ -429,6 +453,8 @@ static void attempt_radio_solution(nav_system_t *sys, uint32_t now_ms, const nav
 
     if (select_status != NAV_STATUS_OK) {
         set_rejected_snapshot(sys, now_ms, selection.reject_reason, NAV_MODE_NO_NAV_SOLUTION);
+        populate_local_gnss_evidence(sys, now_ms);
+        populate_radio_solve_diagnostics(sys, now_ms, NAV_RADIO_SOLVE_REJECTED, 0u);
         (void)snprintf(message, sizeof(message), "reason=%s anchors=%zu", nav_reject_reason_to_string(selection.reject_reason), selection.count);
         emit_log(sys, now_ms, NAV_LOG_WARN, NAV_LOG_CAT_SOLUTION, "solve_rejected", message);
         return;
@@ -438,6 +464,8 @@ static void attempt_radio_solution(nav_system_t *sys, uint32_t now_ms, const nav
     if (!resolve_local_altitude(sys, now_ms, &altitude)) {
         set_rejected_snapshot(sys, now_ms, NAV_REJECT_MISSING_LOCAL_ALTITUDE, NAV_MODE_NO_NAV_SOLUTION);
         copy_selection_to_snapshot(&sys->snapshot, &selection);
+        populate_local_gnss_evidence(sys, now_ms);
+        populate_radio_solve_diagnostics(sys, now_ms, NAV_RADIO_SOLVE_REJECTED, 0u);
         emit_log(sys, now_ms, NAV_LOG_WARN, NAV_LOG_CAT_SOLUTION, "solve_rejected", "reason=MISSING_LOCAL_ALTITUDE");
         return;
     }
@@ -453,13 +481,15 @@ static void attempt_radio_solution(nav_system_t *sys, uint32_t now_ms, const nav
         copy_selection_to_snapshot(&sys->snapshot, &selection);
         sys->snapshot.anchor_triangle_area_m2 = area_m2;
         sys->snapshot.geometry_score = geometry_score;
+        populate_local_gnss_evidence(sys, now_ms);
+        populate_radio_solve_diagnostics(sys, now_ms, NAV_RADIO_SOLVE_REJECTED, 0u);
         (void)snprintf(message, sizeof(message), "reason=BAD_GEOMETRY triangle_area_m2=%.3f", (double)area_m2);
         emit_log(sys, now_ms, NAV_LOG_WARN, NAV_LOG_CAT_SOLUTION, "solve_rejected", message);
         return;
     }
 
     if (sys->radio_solve_generation == sys->last_radio_solve_generation) {
-        reuse_previous_radio_snapshot(sys, previous, now_ms);
+        reuse_previous_radio_snapshot(sys, previous, now_ms, NAV_RADIO_SOLVE_SKIPPED_UNCHANGED_INPUTS, 0u);
         (void)snprintf(
             message,
             sizeof(message),
@@ -508,6 +538,8 @@ static void attempt_radio_solution(nav_system_t *sys, uint32_t now_ms, const nav
         copy_selection_to_snapshot(&sys->snapshot, &selection);
         sys->snapshot.local_altitude_valid = true;
         sys->snapshot.altitude_source = altitude.source;
+        populate_local_gnss_evidence(sys, now_ms);
+        populate_radio_solve_diagnostics(sys, now_ms, NAV_RADIO_SOLVE_REJECTED, 0u);
         (void)snprintf(message, sizeof(message), "reason=TRILATERATION_FAILED status=%s", nav_trilat_status_to_string(trilat_status));
         emit_log(sys, now_ms, NAV_LOG_ERROR, NAV_LOG_CAT_SOLUTION, "solve_rejected", message);
         return;
@@ -535,6 +567,7 @@ static void attempt_radio_solution(nav_system_t *sys, uint32_t now_ms, const nav
         sys->snapshot.solution_status = NAV_SOLUTION_REJECTED;
         sys->snapshot.solution_source = NAV_SOURCE_NONE;
         sys->snapshot.reject_reason = NAV_REJECT_RANGE_OUTLIER;
+        populate_radio_solve_diagnostics(sys, now_ms, NAV_RADIO_SOLVE_REJECTED, 0u);
         (void)snprintf(
             message,
             sizeof(message),
@@ -555,6 +588,7 @@ static void attempt_radio_solution(nav_system_t *sys, uint32_t now_ms, const nav
         sys->snapshot.solution_status = NAV_SOLUTION_RADIO_3D;
         sys->snapshot.solution_source = NAV_SOURCE_RADIO_3D;
     }
+    populate_radio_solve_diagnostics(sys, now_ms, NAV_RADIO_SOLVE_SOLVED, 0u);
 
     (void)snprintf(
         message,
@@ -608,10 +642,11 @@ static void update_snapshot(nav_system_t *sys, uint32_t now_ms, bool allow_radio
         sys->snapshot.local_altitude_valid = true;
         sys->snapshot.altitude_source = NAV_ALT_SOURCE_GNSS;
         sys->snapshot.local_gnss_used = true;
+        populate_radio_solve_diagnostics(sys, now_ms, NAV_RADIO_SOLVE_GNSS_DIRECT, 0u);
     } else if (allow_radio_solve) {
         attempt_radio_solution(sys, now_ms, &previous);
     } else {
-        reuse_previous_radio_snapshot(sys, &previous, now_ms);
+        reuse_previous_radio_snapshot(sys, &previous, now_ms, sys->last_radio_solve_outcome, sys->last_radio_solve_elapsed_ms);
     }
 
     sys->mode = sys->snapshot.nav_mode;

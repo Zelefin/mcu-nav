@@ -76,12 +76,19 @@ snapshot object (see `nav_serial_write_snapshot`). Carried verbatim under `data`
 | ----- | ---- | ------- |
 | `type` | string | `"snapshot"`. |
 | `ts_ms` / `ts` | number | Envelope timestamps. |
-| `data` | object | The snapshot object: `{t, node:{id,name,gps,mock}, mode, sol, src, reject, pos:{lat_e7,lon_e7,alt_mm}, num_anchors, anchor_ids, residual_rms_m, max_residual_m, geometry_score, anchor_triangle_area_m2, total_quality, position_source, position_valid, position_degraded, local_gnss:{present,valid,used,usage,age_ms,fix_type,satellites,hdop_centi,hacc_mm,vacc_mm,lat_e7,lon_e7,alt_mm}, peers:[{id,gnss,lat_e7,lon_e7,alt_mm,position_source,position_valid,position_degraded,telemetry_age_ms,range_mm,range_valid,rssi,snr,quality}]}`. |
+| `data` | object | The snapshot object: `{t, node:{id,name,gps,mock}, mode, sol, src, reject, pos:{lat_e7,lon_e7,alt_mm}, num_anchors, anchor_ids, residual_rms_m, max_residual_m, geometry_score, anchor_triangle_area_m2, total_quality, position_source, position_valid, position_degraded, local_gnss:{present,valid,used,usage,age_ms,fix_type,satellites,hdop_centi,hacc_mm,vacc_mm,lat_e7,lon_e7,alt_mm}, radio_solve:{outcome,age_ms,elapsed_ms,interval_ms,generation,last_generation}, peers:[{id,gnss,lat_e7,lon_e7,alt_mm,position_source,position_valid,position_degraded,telemetry_age_ms,range_mm,range_valid,rssi,snr,quality}]}`. |
 
 `local_gnss` is comparison evidence for the connected node. When `used=false`
 and `usage="disabled"`, it must be treated as diagnostic truth-like evidence
 for field analysis, not as the accepted navigation solution and not as anchor
 telemetry.
+
+`radio_solve` explains the local radio navigation solve cadence. `outcome` is
+`NONE`, `GNSS_DIRECT`, `SOLVED`, `REJECTED`, `SKIPPED_CADENCE`, or
+`SKIPPED_UNCHANGED_INPUTS`. `age_ms` is the age of the most recent radio solve
+attempt, `elapsed_ms` is the cadence elapsed time when relevant, `interval_ms`
+is the configured solve interval, and the generation fields identify whether
+new solve inputs have arrived.
 
 ### `node_quality`
 

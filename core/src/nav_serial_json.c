@@ -94,6 +94,25 @@ static const char *position_source_to_json(nav_solution_source_t source)
     }
 }
 
+static const char *radio_solve_outcome_to_json(nav_radio_solve_outcome_t outcome)
+{
+    switch (outcome) {
+    case NAV_RADIO_SOLVE_GNSS_DIRECT:
+        return "GNSS_DIRECT";
+    case NAV_RADIO_SOLVE_SOLVED:
+        return "SOLVED";
+    case NAV_RADIO_SOLVE_REJECTED:
+        return "REJECTED";
+    case NAV_RADIO_SOLVE_SKIPPED_CADENCE:
+        return "SKIPPED_CADENCE";
+    case NAV_RADIO_SOLVE_SKIPPED_UNCHANGED_INPUTS:
+        return "SKIPPED_UNCHANGED_INPUTS";
+    case NAV_RADIO_SOLVE_NONE:
+    default:
+        return "NONE";
+    }
+}
+
 static nav_solution_source_t peer_effective_source(const nav_peer_state_t *peer)
 {
     if (peer == NULL) {
@@ -211,6 +230,19 @@ int nav_serial_write_snapshot(
         (long)snapshot->local_gnss_position.lat_e7,
         (long)snapshot->local_gnss_position.lon_e7,
         (long)snapshot->local_gnss_position.alt_mm
+    );
+    used = json_appendf(
+        buf,
+        cap,
+        used,
+        ",\"radio_solve\":{\"outcome\":\"%s\",\"age_ms\":%lu,\"elapsed_ms\":%lu,"
+        "\"interval_ms\":%lu,\"generation\":%lu,\"last_generation\":%lu}",
+        radio_solve_outcome_to_json(snapshot->radio_solve_outcome),
+        (unsigned long)snapshot->radio_solve_age_ms,
+        (unsigned long)snapshot->radio_solve_elapsed_ms,
+        (unsigned long)snapshot->radio_solve_interval_ms,
+        (unsigned long)snapshot->radio_solve_generation,
+        (unsigned long)snapshot->radio_solve_last_generation
     );
 
     used = json_appendf(buf, cap, used, ",\"peers\":[");
