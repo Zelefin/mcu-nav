@@ -19,3 +19,5 @@ playwright-report/
 sdkconfig.*
 !sdkconfig.defaults*
 .DS_Store
+.pres_out/
+logs/
