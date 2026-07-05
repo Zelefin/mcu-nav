@@ -20,6 +20,7 @@ nav_config_t nav_config_default(uint8_t local_node_id)
         .range_ttl_ms = 1000u,
         .local_altitude_ttl_ms = 1000u,
         .tick_period_ms = 100u,
+        .radio_solve_interval_ms = 500u,
         .max_range_sigma_mm = 10000u,
         .min_anchor_quality = 0.05f,
         .min_solution_quality = 0.20f,
@@ -81,6 +82,47 @@ static void snapshot_clear_diagnostics(nav_snapshot_t *snapshot)
         snapshot->rejected_node_ids[i] = NAV_INVALID_NODE_ID;
         snapshot->rejected_reasons[i] = NAV_REJECT_NONE;
     }
+}
+
+static void populate_local_gnss_evidence(nav_system_t *sys, uint32_t now_ms)
+{
+    sys->snapshot.local_gnss_present = sys->local_gnss_present;
+    sys->snapshot.local_gnss_valid = false;
+    sys->snapshot.local_gnss_used = false;
+    sys->snapshot.local_gnss_age_ms = 0u;
+    sys->snapshot.local_gnss_fix_type = NAV_GNSS_FIX_NONE;
+    sys->snapshot.local_gnss_satellites = 0u;
+    sys->snapshot.local_gnss_hdop_centi = 0u;
+    sys->snapshot.local_gnss_hacc_mm = 0u;
+    sys->snapshot.local_gnss_vacc_mm = 0u;
+    sys->snapshot.local_gnss_position = (nav_position_t){0};
+
+    if (!sys->local_gnss_present) {
+        return;
+    }
+
+    sys->snapshot.local_gnss_valid = nav_gnss_sample_is_usable(&sys->local_gnss);
+    sys->snapshot.local_gnss_age_ms = now_ms - sys->local_gnss.timestamp_ms;
+    sys->snapshot.local_gnss_fix_type = sys->local_gnss.fix_type;
+    sys->snapshot.local_gnss_satellites = sys->local_gnss.satellites;
+    sys->snapshot.local_gnss_hdop_centi = sys->local_gnss.hdop_centi;
+    sys->snapshot.local_gnss_hacc_mm = sys->local_gnss.hacc_mm;
+    sys->snapshot.local_gnss_vacc_mm = sys->local_gnss.vacc_mm;
+    sys->snapshot.local_gnss_position = sys->local_gnss.position;
+}
+
+static void mark_radio_solve_inputs_changed(nav_system_t *sys)
+{
+    ++sys->radio_solve_generation;
+    if (sys->radio_solve_generation == 0u) {
+        ++sys->radio_solve_generation;
+    }
+}
+
+static bool local_gnss_can_affect_radio_solution(const nav_system_t *sys)
+{
+    return sys->config.demo_force_gps_denied && sys->config.allow_gnss_altitude_in_demo_forced_denied &&
+           !sys->config.ignore_altitude_for_radio_solve;
 }
 
 static void selection_init(nav_anchor_selection_t *selection)
@@ -350,14 +392,40 @@ static void set_rejected_snapshot(nav_system_t *sys, uint32_t now_ms, nav_reject
     sys->snapshot.vacc_mm = 0u;
 }
 
-static void attempt_radio_solution(nav_system_t *sys, uint32_t now_ms)
+static void reuse_previous_radio_snapshot(nav_system_t *sys, const nav_snapshot_t *previous, uint32_t now_ms)
+{
+    sys->snapshot = *previous;
+    sys->snapshot.time_ms = now_ms;
+    sys->snapshot.node_id = sys->config.local_node_id;
+    populate_local_gnss_evidence(sys, now_ms);
+}
+
+static void attempt_radio_solution(nav_system_t *sys, uint32_t now_ms, const nav_snapshot_t *previous)
 {
     char message[192];
+    if (sys->radio_solve_ran) {
+        const uint32_t elapsed_ms = now_ms - sys->last_radio_solve_ms;
+        if (sys->config.radio_solve_interval_ms > 0u && elapsed_ms < sys->config.radio_solve_interval_ms) {
+            reuse_previous_radio_snapshot(sys, previous, now_ms);
+            (void)snprintf(
+                message,
+                sizeof(message),
+                "reason=CADENCE elapsed_ms=%lu interval_ms=%lu",
+                (unsigned long)elapsed_ms,
+                (unsigned long)sys->config.radio_solve_interval_ms
+            );
+            emit_log(sys, now_ms, NAV_LOG_DEBUG, NAV_LOG_CAT_SOLUTION, "solve_skipped", message);
+            return;
+        }
+    }
+
     nav_anchor_selection_t selection;
     const nav_status_t select_status = nav_select_radio_anchors(sys, now_ms, &selection);
     update_peer_diagnostics_from_selection(sys, &selection);
     copy_selection_to_snapshot(&sys->snapshot, &selection);
     log_anchor_selection(sys, now_ms, &selection);
+    sys->last_radio_solve_ms = now_ms;
+    sys->radio_solve_ran = true;
 
     if (select_status != NAV_STATUS_OK) {
         set_rejected_snapshot(sys, now_ms, selection.reject_reason, NAV_MODE_NO_NAV_SOLUTION);
@@ -390,6 +458,18 @@ static void attempt_radio_solution(nav_system_t *sys, uint32_t now_ms)
         return;
     }
 
+    if (sys->radio_solve_generation == sys->last_radio_solve_generation) {
+        reuse_previous_radio_snapshot(sys, previous, now_ms);
+        (void)snprintf(
+            message,
+            sizeof(message),
+            "reason=UNCHANGED_INPUTS generation=%lu",
+            (unsigned long)sys->radio_solve_generation
+        );
+        emit_log(sys, now_ms, NAV_LOG_DEBUG, NAV_LOG_CAT_SOLUTION, "solve_skipped", message);
+        return;
+    }
+
     nav_trilat_anchor_t trilat_anchors[NAV_TRILAT_ANCHOR_COUNT];
     float average_anchor_quality = 0.0f;
     for (size_t i = 0u; i < NAV_TRILAT_ANCHOR_COUNT; ++i) {
@@ -405,11 +485,13 @@ static void attempt_radio_solution(nav_system_t *sys, uint32_t now_ms)
     (void)snprintf(
         message,
         sizeof(message),
-        "anchors=%u,%u,%u target_alt_mm=%ld",
+        "anchors=%u,%u,%u target_alt_mm=%ld generation=%lu interval_ms=%lu",
         selection.anchors[0].node_id,
         selection.anchors[1].node_id,
         selection.anchors[2].node_id,
-        (long)altitude.alt_mm
+        (long)altitude.alt_mm,
+        (unsigned long)sys->radio_solve_generation,
+        (unsigned long)sys->config.radio_solve_interval_ms
     );
     emit_log(sys, now_ms, NAV_LOG_INFO, NAV_LOG_CAT_SOLUTION, "solve_attempt", message);
 
@@ -420,6 +502,7 @@ static void attempt_radio_solution(nav_system_t *sys, uint32_t now_ms)
             sys->config.ignore_altitude_for_radio_solve ? 0.0 : (double)altitude.alt_mm / 1000.0,
             &result
         );
+    sys->last_radio_solve_generation = sys->radio_solve_generation;
     if (trilat_status != NAV_TRILAT_OK) {
         set_rejected_snapshot(sys, now_ms, NAV_REJECT_TRILATERATION_FAILED, NAV_MODE_NO_NAV_SOLUTION);
         copy_selection_to_snapshot(&sys->snapshot, &selection);
@@ -476,14 +559,15 @@ static void attempt_radio_solution(nav_system_t *sys, uint32_t now_ms)
     (void)snprintf(
         message,
         sizeof(message),
-        "lat_e7=%ld lon_e7=%ld alt_mm=%ld residual_rms_m=%.6f max_residual_m=%.6f quality=%.3f geometry_score=%.3f",
+        "lat_e7=%ld lon_e7=%ld alt_mm=%ld residual_rms_m=%.6f max_residual_m=%.6f quality=%.3f geometry_score=%.3f iterations=%d",
         (long)sys->snapshot.position.lat_e7,
         (long)sys->snapshot.position.lon_e7,
         (long)sys->snapshot.position.alt_mm,
         (double)sys->snapshot.residual_rms_m,
         (double)sys->snapshot.max_residual_m,
         (double)sys->snapshot.total_quality,
-        (double)sys->snapshot.geometry_score
+        (double)sys->snapshot.geometry_score,
+        result.iterations
     );
     emit_log(sys, now_ms, NAV_LOG_INFO, NAV_LOG_CAT_SOLUTION, "solve_succeeded", message);
 
@@ -500,15 +584,17 @@ static void attempt_radio_solution(nav_system_t *sys, uint32_t now_ms)
     }
 }
 
-static void update_snapshot(nav_system_t *sys, uint32_t now_ms)
+static void update_snapshot(nav_system_t *sys, uint32_t now_ms, bool allow_radio_solve)
 {
     const nav_mode_t old_mode = sys->snapshot.nav_mode;
     const nav_solution_status_t old_status = sys->snapshot.solution_status;
     const bool local_usable = nav_gnss_sample_is_usable(&sys->local_gnss) && !sys->config.demo_force_gps_denied;
+    const nav_snapshot_t previous = sys->snapshot;
 
     snapshot_clear_diagnostics(&sys->snapshot);
     sys->snapshot.time_ms = now_ms;
     sys->snapshot.node_id = sys->config.local_node_id;
+    populate_local_gnss_evidence(sys, now_ms);
 
     if (local_usable) {
         sys->snapshot.nav_mode = NAV_MODE_GNSS_OK;
@@ -521,8 +607,11 @@ static void update_snapshot(nav_system_t *sys, uint32_t now_ms)
         sys->snapshot.reject_reason = NAV_REJECT_NONE;
         sys->snapshot.local_altitude_valid = true;
         sys->snapshot.altitude_source = NAV_ALT_SOURCE_GNSS;
+        sys->snapshot.local_gnss_used = true;
+    } else if (allow_radio_solve) {
+        attempt_radio_solution(sys, now_ms, &previous);
     } else {
-        attempt_radio_solution(sys, now_ms);
+        reuse_previous_radio_snapshot(sys, &previous, now_ms);
     }
 
     sys->mode = sys->snapshot.nav_mode;
@@ -570,6 +659,9 @@ void nav_core_handle_event(nav_system_t *sys, const nav_event_t *event)
     case NAV_EVT_LOCAL_GNSS_SAMPLE:
         sys->local_gnss = event->data.local_gnss;
         sys->local_gnss_present = true;
+        if (local_gnss_can_affect_radio_solution(sys)) {
+            mark_radio_solve_inputs_changed(sys);
+        }
         (void)snprintf(
             message,
             sizeof(message),
@@ -582,11 +674,19 @@ void nav_core_handle_event(nav_system_t *sys, const nav_event_t *event)
             sys->config.demo_force_gps_denied ? 1u : 0u
         );
         emit_log(sys, now_ms, NAV_LOG_INFO, NAV_LOG_CAT_GNSS, "local_gnss_sample", message);
-        update_snapshot(sys, now_ms);
+        update_snapshot(sys, now_ms, false);
         break;
-    case NAV_EVT_LOCAL_ALTITUDE_SAMPLE:
+    case NAV_EVT_LOCAL_ALTITUDE_SAMPLE: {
+        const bool altitude_changed =
+            !sys->local_altitude_present ||
+            sys->local_altitude.alt_mm != event->data.local_altitude.alt_mm ||
+            sys->local_altitude.source != event->data.local_altitude.source ||
+            sys->local_altitude.valid != event->data.local_altitude.valid;
         sys->local_altitude = event->data.local_altitude;
         sys->local_altitude_present = true;
+        if (altitude_changed && !sys->config.ignore_altitude_for_radio_solve) {
+            mark_radio_solve_inputs_changed(sys);
+        }
         (void)snprintf(
             message,
             sizeof(message),
@@ -603,10 +703,12 @@ void nav_core_handle_event(nav_system_t *sys, const nav_event_t *event)
             sys->local_altitude.valid ? "local_altitude_accepted" : "local_altitude_rejected",
             message
         );
-        update_snapshot(sys, now_ms);
+        update_snapshot(sys, now_ms, false);
         break;
+    }
     case NAV_EVT_PEER_TELEMETRY_RX:
         if (nav_peer_table_update_beacon_rx(&sys->peer_table, &event->data.peer_beacon_rx, now_ms)) {
+            mark_radio_solve_inputs_changed(sys);
             (void)snprintf(
                 message,
                 sizeof(message),
@@ -622,10 +724,11 @@ void nav_core_handle_event(nav_system_t *sys, const nav_event_t *event)
             );
             emit_log(sys, now_ms, NAV_LOG_INFO, NAV_LOG_CAT_PEER_TABLE, "telemetry_update", message);
         }
-        update_snapshot(sys, now_ms);
+        update_snapshot(sys, now_ms, false);
         break;
     case NAV_EVT_RANGE_RESULT:
         if (nav_peer_table_update_range(&sys->peer_table, &event->data.range_result, now_ms)) {
+            mark_radio_solve_inputs_changed(sys);
             (void)snprintf(
                 message,
                 sizeof(message),
@@ -640,7 +743,7 @@ void nav_core_handle_event(nav_system_t *sys, const nav_event_t *event)
             );
             emit_log(sys, now_ms, NAV_LOG_INFO, NAV_LOG_CAT_RANGE, "range_update", message);
         }
-        update_snapshot(sys, now_ms);
+        update_snapshot(sys, now_ms, false);
         break;
     case NAV_EVT_RANGE_FAIL: {
         nav_range_result_t failed = {
@@ -651,6 +754,7 @@ void nav_core_handle_event(nav_system_t *sys, const nav_event_t *event)
         };
         if (!sys->config.retain_last_range_on_failure) {
             (void)nav_peer_table_update_range(&sys->peer_table, &failed, now_ms);
+            mark_radio_solve_inputs_changed(sys);
         }
         (void)snprintf(
             message,
@@ -661,7 +765,7 @@ void nav_core_handle_event(nav_system_t *sys, const nav_event_t *event)
             nav_range_fail_reason_to_string(event->data.range_failure.reason)
         );
         emit_log(sys, now_ms, NAV_LOG_WARN, NAV_LOG_CAT_RANGE, "range_fail", message);
-        update_snapshot(sys, now_ms);
+        update_snapshot(sys, now_ms, false);
         break;
     }
     case NAV_EVT_CONFIG_COMMAND:
@@ -670,9 +774,10 @@ void nav_core_handle_event(nav_system_t *sys, const nav_event_t *event)
         } else if (event->data.config_command.command == NAV_CONFIG_CMD_USE_GNSS) {
             sys->config.demo_force_gps_denied = false;
         }
+        mark_radio_solve_inputs_changed(sys);
         (void)snprintf(message, sizeof(message), "forced_denied=%u", sys->config.demo_force_gps_denied ? 1u : 0u);
         emit_log(sys, now_ms, NAV_LOG_INFO, NAV_LOG_CAT_CONFIG, "config_command", message);
-        update_snapshot(sys, now_ms);
+        update_snapshot(sys, now_ms, false);
         break;
     case NAV_EVT_NONE:
     default:
@@ -707,7 +812,7 @@ void nav_core_tick(nav_system_t *sys, uint32_t now_ms)
         }
     }
     emit_log(sys, now_ms, NAV_LOG_TRACE, NAV_LOG_CAT_STATE, "tick", "timer tick");
-    update_snapshot(sys, now_ms);
+    update_snapshot(sys, now_ms, true);
 }
 
 bool nav_core_get_snapshot(const nav_system_t *sys, nav_snapshot_t *out)

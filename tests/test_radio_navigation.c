@@ -58,6 +58,17 @@ static bool logs_contain(const log_capture_t *capture, const char *needle)
     return false;
 }
 
+static size_t logs_count(const log_capture_t *capture, const char *needle)
+{
+    size_t count = 0u;
+    for (size_t i = 0u; i < capture->count; ++i) {
+        if (strstr(capture->messages[i], needle) != 0) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 static nav_peer_telemetry_t sample_telemetry(uint8_t node_id)
 {
     static const nav_position_t positions[4] = {
@@ -357,6 +368,70 @@ static void test_forced_denied_ignores_local_gnss_position(void)
     CHECK(snapshot.nav_mode == NAV_MODE_RADIO_NAV_OK);
     CHECK(snapshot.position.lat_e7 != event.data.local_gnss.position.lat_e7);
     CHECK(snapshot.altitude_source == NAV_ALT_SOURCE_SIM);
+    CHECK(snapshot.local_gnss_present);
+    CHECK(snapshot.local_gnss_valid);
+    CHECK(!snapshot.local_gnss_used);
+    CHECK(snapshot.local_gnss_position.lat_e7 == event.data.local_gnss.position.lat_e7);
+    CHECK(snapshot.local_gnss_position.lon_e7 == event.data.local_gnss.position.lon_e7);
+    CHECK(snapshot.local_gnss_position.alt_mm == event.data.local_gnss.position.alt_mm);
+}
+
+static void test_radio_solve_runs_only_on_tick_cadence(void)
+{
+    nav_system_t sys;
+    log_capture_t logs = {0};
+    init_system(&sys, &logs);
+    send_altitude(&sys);
+    send_peer(&sys, 1u, true, true);
+    send_peer(&sys, 2u, true, true);
+    send_peer(&sys, 3u, true, true);
+
+    nav_snapshot_t first = tick_and_snapshot(&sys, 1000u);
+    CHECK(first.solution_status == NAV_SOLUTION_RADIO_3D);
+    CHECK(logs_count(&logs, "solve_succeeded") == 1u);
+
+    nav_event_t gnss = local_gnss_event(1100u);
+    nav_core_handle_event(&sys, &gnss);
+    nav_snapshot_t cadence_skip = tick_and_snapshot(&sys, 1200u);
+    CHECK(cadence_skip.solution_status == NAV_SOLUTION_RADIO_3D);
+    CHECK(cadence_skip.position.lat_e7 == first.position.lat_e7);
+    CHECK(cadence_skip.local_gnss_present);
+    CHECK(!cadence_skip.local_gnss_used);
+    CHECK(logs_count(&logs, "solve_succeeded") == 1u);
+    CHECK(logs_contain(&logs, "reason=CADENCE"));
+
+    nav_snapshot_t unchanged_skip = tick_and_snapshot(&sys, 1600u);
+    CHECK(unchanged_skip.solution_status == NAV_SOLUTION_RADIO_3D);
+    CHECK(unchanged_skip.position.lat_e7 == first.position.lat_e7);
+    CHECK(logs_count(&logs, "solve_succeeded") == 1u);
+    CHECK(logs_contain(&logs, "reason=UNCHANGED_INPUTS"));
+}
+
+static void test_radio_solve_recomputes_after_changed_range_at_next_cadence(void)
+{
+    nav_system_t sys;
+    log_capture_t logs = {0};
+    init_system(&sys, &logs);
+    send_altitude(&sys);
+    send_peer(&sys, 1u, true, true);
+    send_peer(&sys, 2u, true, true);
+    send_peer(&sys, 3u, true, true);
+
+    nav_snapshot_t first = tick_and_snapshot(&sys, 1000u);
+    CHECK(first.solution_status == NAV_SOLUTION_RADIO_3D);
+    CHECK(logs_count(&logs, "solve_succeeded") == 1u);
+
+    nav_event_t event = {
+        .type = NAV_EVT_RANGE_RESULT,
+        .timestamp_ms = 1700u,
+        .data.range_result = sample_range(3u),
+    };
+    event.data.range_result.range_mm += 20000u;
+    nav_core_handle_event(&sys, &event);
+
+    nav_snapshot_t next = tick_and_snapshot(&sys, 1700u);
+    CHECK(next.solution_source == NAV_SOURCE_RADIO_3D || next.solution_source == NAV_SOURCE_NONE);
+    CHECK(logs_count(&logs, "solve_succeeded") + logs_count(&logs, "reason=RANGE_OUTLIER") >= 2u);
 }
 
 static void test_radio_solution_residual_rejected(void)
@@ -564,6 +639,8 @@ int main(void)
     RUN_TEST(test_radio_3d_reject_bad_peer_gnss);
     RUN_TEST(test_radio_3d_reject_missing_altitude);
     RUN_TEST(test_forced_denied_ignores_local_gnss_position);
+    RUN_TEST(test_radio_solve_runs_only_on_tick_cadence);
+    RUN_TEST(test_radio_solve_recomputes_after_changed_range_at_next_cadence);
     RUN_TEST(test_radio_solution_residual_rejected);
     RUN_TEST(test_field_display_mode_ignores_altitude_and_accepts_rough_ranges);
     RUN_TEST(test_beacon_rx_metadata_reaches_peer_diagnostics);

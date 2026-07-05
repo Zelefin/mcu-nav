@@ -128,11 +128,23 @@ navigation solution from real peer telemetry, fresh SX1280 ranges, and local
 altitude after local GPS is disabled on one node.
 _Avoid_: Boot self-test, packet-only smoke test
 
+**Radio solve cadence**:
+The maximum rate at which a GPS-disabled node recomputes its radio navigation
+solution from retained field evidence. It is separate from GNSS parser rate,
+snapshot emission rate, and ranging cycle timing.
+_Avoid_: GPS rate, telemetry rate, ranging rate
+
 **GPS-disabled node**:
 A node whose local GNSS is not allowed to become its navigation solution or
 advertised anchor telemetry. The node may still read GNSS bytes for diagnostics
 and can still participate in ranging as a distance-only node.
 _Avoid_: GPS-unplugged node, GPS health disabled
+
+**Local GNSS evidence**:
+The latest local GNSS fix retained for diagnostics and comparison on a
+GPS-disabled node. It is not an accepted navigation solution and must not be
+advertised as navigation-anchor telemetry while local GNSS use is disabled.
+_Avoid_: Fallback GPS, hidden GPS solution, anchor GNSS
 
 **Working PoC**:
 The first verified end-to-end ESP32 setup that passes the hardware integration

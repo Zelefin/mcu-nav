@@ -41,6 +41,7 @@ t=123456 level=INFO cat=PEER_TABLE event=telemetry_update peer=2 packet_seq=104 
 - `QUALITY anchor_accepted`
 - `QUALITY anchor_rejected`
 - `SOLUTION solve_attempt`
+- `SOLUTION solve_skipped`
 - `SOLUTION solve_succeeded`
 - `SOLUTION solve_rejected`
 - `SOLUTION residual`
@@ -68,7 +69,13 @@ t=2001 level=WARN cat=QUALITY event=anchor_rejected peer=3 reason=STALE_RANGE
 Solve success:
 
 ```text
-t=1000 level=INFO cat=SOLUTION event=solve_succeeded lat_e7=504529000 lon_e7=305268000 alt_mm=183500 residual_rms_m=0.000162 max_residual_m=0.000197 quality=1.000 geometry_score=1.000
+t=1000 level=INFO cat=SOLUTION event=solve_succeeded lat_e7=504529000 lon_e7=305268000 alt_mm=183500 residual_rms_m=0.000162 max_residual_m=0.000197 quality=1.000 geometry_score=1.000 iterations=3
+```
+
+Skipped solve:
+
+```text
+t=1200 level=DEBUG cat=SOLUTION event=solve_skipped reason=CADENCE elapsed_ms=200 interval_ms=500
 ```
 
 Solve failure:

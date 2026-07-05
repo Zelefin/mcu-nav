@@ -21,6 +21,11 @@ system/replay time.
 contents. Normal application code should inject events and read snapshots rather
 than mutating local GNSS, altitude, peer table, mode, or snapshot fields.
 
+When local GNSS use is disabled for trilateration, the latest local GNSS sample
+is still retained as local GNSS evidence for logs, snapshots, and field
+comparison. This evidence must not become the accepted solution or advertised
+GNSS-valid anchor telemetry while GNSS use is disabled.
+
 ## Local Altitude
 
 `nav_local_altitude_t` provides the altitude constraint required by the v1
@@ -172,6 +177,8 @@ the best three by quality are selected; overdetermined WLS is future work.
 - `anchor_triangle_area_m2`, `geometry_score`
 - rejected peer ids/reasons
 - local altitude validity/source
+- local GNSS evidence for comparison, including fix health, position, age, and
+  whether it was used by the accepted solution
 - `total_quality`
 
 ## Config Thresholds
@@ -179,6 +186,7 @@ the best three by quality are selected; overdetermined WLS is future work.
 `nav_config_t` includes:
 
 - `telemetry_ttl_ms`, `range_ttl_ms`, `local_altitude_ttl_ms`
+- `radio_solve_interval_ms`
 - `max_range_sigma_mm`
 - `min_anchor_quality`, `min_solution_quality`
 - `max_residual_rms_m`, `max_residual_m`
@@ -188,6 +196,11 @@ the best three by quality are selected; overdetermined WLS is future work.
 - `allow_gnss_altitude_in_demo_forced_denied`
 
 The geometry score is a v1 horizontal triangle-area heuristic, not full GDOP.
+
+`radio_solve_interval_ms` limits the expensive radio trilateration recompute
+cadence. Events update core-owned state immediately, but a GPS-disabled node
+recomputes `RADIO_3D` only from the tick path when the cadence allows it and the
+selected solve inputs changed.
 
 ## Reject Reasons
 

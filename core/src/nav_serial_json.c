@@ -168,12 +168,50 @@ int nav_serial_write_snapshot(
                         (long)snapshot->position.lon_e7,
                         (long)snapshot->position.alt_mm,
                         (unsigned)snapshot->num_anchors);
+    used = json_appendf(
+        buf,
+        cap,
+        used,
+        ",\"anchor_ids\":[%u,%u,%u],\"residual_rms_m\":%.6f,\"max_residual_m\":%.6f,"
+        "\"geometry_score\":%.3f,\"anchor_triangle_area_m2\":%.3f,\"total_quality\":%.3f",
+        (unsigned)snapshot->selected_anchor_node_ids[0],
+        (unsigned)snapshot->selected_anchor_node_ids[1],
+        (unsigned)snapshot->selected_anchor_node_ids[2],
+        (double)snapshot->residual_rms_m,
+        (double)snapshot->max_residual_m,
+        (double)snapshot->geometry_score,
+        (double)snapshot->anchor_triangle_area_m2,
+        (double)snapshot->total_quality
+    );
     used = json_appendf(buf, cap, used,
                         ",\"position_source\":\"%s\",\"position_valid\":%s,\"position_degraded\":%s",
                         position_source_to_json(snapshot->solution_source),
                         solution_is_displayable(snapshot->solution_source, snapshot->solution_status) ? "true"
                                                                                                       : "false",
                         solution_is_degraded(snapshot->solution_source, snapshot->solution_status) ? "true" : "false");
+    const char *local_gnss_usage = snapshot->local_gnss_used ? "solution" : (info->gps_enabled ? "enabled" : "disabled");
+    used = json_appendf(
+        buf,
+        cap,
+        used,
+        ",\"local_gnss\":{\"present\":%s,\"valid\":%s,\"used\":%s,\"usage\":\"%s\","
+        "\"age_ms\":%lu,\"fix_type\":\"%s\",\"satellites\":%u,\"hdop_centi\":%u,"
+        "\"hacc_mm\":%lu,\"vacc_mm\":%lu,"
+        "\"lat_e7\":%ld,\"lon_e7\":%ld,\"alt_mm\":%ld}",
+        snapshot->local_gnss_present ? "true" : "false",
+        snapshot->local_gnss_valid ? "true" : "false",
+        snapshot->local_gnss_used ? "true" : "false",
+        local_gnss_usage,
+        (unsigned long)snapshot->local_gnss_age_ms,
+        gnss_fix_type_to_string(snapshot->local_gnss_fix_type),
+        (unsigned)snapshot->local_gnss_satellites,
+        (unsigned)snapshot->local_gnss_hdop_centi,
+        (unsigned long)snapshot->local_gnss_hacc_mm,
+        (unsigned long)snapshot->local_gnss_vacc_mm,
+        (long)snapshot->local_gnss_position.lat_e7,
+        (long)snapshot->local_gnss_position.lon_e7,
+        (long)snapshot->local_gnss_position.alt_mm
+    );
 
     used = json_appendf(buf, cap, used, ",\"peers\":[");
     bool first = true;

@@ -234,6 +234,16 @@ typedef struct {
     nav_reject_reason_t reject_reason;
     nav_altitude_source_t altitude_source;
     bool local_altitude_valid;
+    bool local_gnss_present;
+    bool local_gnss_valid;
+    bool local_gnss_used;
+    uint32_t local_gnss_age_ms;
+    nav_gnss_fix_type_t local_gnss_fix_type;
+    uint8_t local_gnss_satellites;
+    uint16_t local_gnss_hdop_centi;
+    uint32_t local_gnss_hacc_mm;
+    uint32_t local_gnss_vacc_mm;
+    nav_position_t local_gnss_position;
 } nav_snapshot_t;
 
 #ifdef __cplusplus

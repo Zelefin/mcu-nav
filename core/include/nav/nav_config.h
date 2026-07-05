@@ -13,6 +13,7 @@ typedef struct {
     uint32_t range_ttl_ms;
     uint32_t local_altitude_ttl_ms;
     uint32_t tick_period_ms;
+    uint32_t radio_solve_interval_ms;
     uint32_t max_range_sigma_mm;
     float min_anchor_quality;
     float min_solution_quality;

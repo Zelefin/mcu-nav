@@ -74,6 +74,10 @@ bool effectiveGpsEnabled() {
 
 void applyCoreConfig() {
   gNav.config.demo_force_gps_denied = !effectiveGpsEnabled();
+  ++gNav.radio_solve_generation;
+  if (gNav.radio_solve_generation == 0u) {
+    ++gNav.radio_solve_generation;
+  }
 }
 
 void initCoreForConfig() {
@@ -277,7 +281,12 @@ void EmitterTask(void *) {
     xSemaphoreTake(gMutex, portMAX_DELAY);
     feedAltitude(now);
     nav_mock_emit(&gMock, now, emitIntoCore, &gNav);
+    const uint64_t tickStartUs = esp_timer_get_time();
     nav_core_tick(&gNav, now);
+    const uint32_t tickDurationMs = static_cast<uint32_t>((esp_timer_get_time() - tickStartUs) / 1000ULL);
+    if (tickDurationMs >= 50u) {
+      Logger::warnf("SYSTEM", "core_tick slow duration_ms=%lu", static_cast<unsigned long>(tickDurationMs));
+    }
 
     nav_snapshot_t snapshot;
     nav_core_get_snapshot(&gNav, &snapshot);

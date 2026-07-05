@@ -95,6 +95,11 @@ Also capture the residual and geometry diagnostics:
 - `geometry_score`
 - `anchor_ids`
 
+When local GPS use is disabled, keep the GPS receiver connected. Snapshots
+should include `local_gnss.used=false` and `local_gnss.usage="disabled"` so the
+field recording can compare the accepted `RADIO_3D` position against the node's
+real GNSS evidence without letting GNSS become the navigation solution.
+
 ## Expected Result
 
 With three GNSS-valid anchors and three local-endpoint ranges inside the field

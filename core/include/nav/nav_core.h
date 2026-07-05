@@ -21,6 +21,10 @@ typedef struct {
     nav_mode_t mode;
     nav_snapshot_t snapshot;
     uint32_t last_tick_ms;
+    uint32_t last_radio_solve_ms;
+    uint32_t radio_solve_generation;
+    uint32_t last_radio_solve_generation;
+    bool radio_solve_ran;
 } nav_system_t;
 
 void nav_core_init(nav_system_t *sys, const nav_config_t *config);

@@ -58,6 +58,24 @@ static void test_write(void)
     snapshot.reject_reason = NAV_REJECT_NONE;
     snapshot.position = (nav_position_t){504520000, 305260000, 183500};
     snapshot.num_anchors = 3u;
+    snapshot.selected_anchor_node_ids[0] = 1u;
+    snapshot.selected_anchor_node_ids[1] = 2u;
+    snapshot.selected_anchor_node_ids[2] = 3u;
+    snapshot.residual_rms_m = 0.31f;
+    snapshot.max_residual_m = 0.52f;
+    snapshot.geometry_score = 0.87f;
+    snapshot.anchor_triangle_area_m2 = 1234.5f;
+    snapshot.total_quality = 0.79f;
+    snapshot.local_gnss_present = true;
+    snapshot.local_gnss_valid = true;
+    snapshot.local_gnss_used = false;
+    snapshot.local_gnss_age_ms = 120u;
+    snapshot.local_gnss_fix_type = NAV_GNSS_FIX_3D;
+    snapshot.local_gnss_satellites = 12u;
+    snapshot.local_gnss_hdop_centi = 80u;
+    snapshot.local_gnss_hacc_mm = 1100u;
+    snapshot.local_gnss_vacc_mm = 2100u;
+    snapshot.local_gnss_position = (nav_position_t){504519990, 305260010, 183400};
 
     nav_peer_table_t peers;
     nav_peer_table_init(&peers);
@@ -97,7 +115,7 @@ static void test_write(void)
         .mock_enabled = true,
     };
 
-    char buf[1024];
+    char buf[2048];
     const int n = nav_serial_write_snapshot(buf, sizeof(buf), &info, &snapshot, &peers);
     assert(n > 0);
     assert((size_t)n == strlen(buf));
@@ -110,6 +128,16 @@ static void test_write(void)
     assert(strstr(buf, "\"position_source\":\"RADIO_3D\"") != NULL);
     assert(strstr(buf, "\"position_valid\":true") != NULL);
     assert(strstr(buf, "\"position_degraded\":false") != NULL);
+    assert(strstr(buf, "\"anchor_ids\":[1,2,3]") != NULL);
+    assert(strstr(buf, "\"residual_rms_m\":0.310000") != NULL);
+    assert(strstr(buf, "\"max_residual_m\":0.520000") != NULL);
+    assert(strstr(buf, "\"geometry_score\":0.870") != NULL);
+    assert(strstr(buf, "\"total_quality\":0.790") != NULL);
+    assert(strstr(buf, "\"local_gnss\":{\"present\":true") != NULL);
+    assert(strstr(buf, "\"usage\":\"disabled\"") != NULL);
+    assert(strstr(buf, "\"used\":false") != NULL);
+    assert(strstr(buf, "\"fix_type\":\"3D\"") != NULL);
+    assert(strstr(buf, "\"lat_e7\":504519990") != NULL);
     assert(strstr(buf, "\"lat_e7\":504520000") != NULL);
     assert(strstr(buf, "\"id\":1") != NULL);
     assert(strstr(buf, "\"position_source\":\"GNSS\"") != NULL);
