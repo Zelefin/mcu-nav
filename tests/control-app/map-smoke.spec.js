@@ -6,14 +6,26 @@ test("offline demo fixture renders GNSS and no-GPS markers", async ({ page }, te
 
   const map = page.locator("#map");
   await expect(map).toBeVisible();
-  await expect(page.locator(".node-marker")).toHaveCount(4);
+  await expect(page.locator("#recordingWarning")).toBeVisible();
+  await expect(page.locator("#recordState")).toHaveText("off");
+  await expect(page.locator(".node-marker")).toHaveCount(5);
   await expect(page.locator("#fieldChecklist tr")).toHaveCount(4);
-  await expect.poll(() => page.locator("#map").evaluate((el) => Number(el.dataset.rangeLines || "0"))).toBeGreaterThanOrEqual(3);
+  await expect.poll(() => page.locator("#map").evaluate((el) => Number(el.dataset.rangeLines || "0"))).toBeGreaterThanOrEqual(4);
 
   await expect(page.locator('.node-marker.gnss .node-label', { hasText: "node-0" })).toBeVisible();
   await expect(page.locator('.node-marker.gnss .node-label', { hasText: "node-2" })).toBeVisible();
   await expect(page.locator('.node-marker.gnss .node-label', { hasText: "node-3" })).toBeVisible();
   await expect(page.locator('.node-marker.radio.this .node-label', { hasText: "node-1 (this, no GPS)" })).toBeVisible();
+  await expect(page.locator('.node-marker.evidence .node-label', { hasText: "node-1 GNSS evidence" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() =>
+    rangeLineFeatures(snapshotMapPositions()).filter((line) => line.kind === "compare").length
+  )).toBe(1);
+  await expect(page.locator("#cmpAccepted")).toContainText("RADIO_3D");
+  await expect(page.locator("#cmpGnss")).toContainText("disabled");
+  await expect(page.locator("#cmpDelta")).not.toHaveText("—");
+  await expect(page.locator("#solveOutcome")).toHaveText("SOLVED");
+  await expect(page.locator("#solveInputs")).toContainText("anchors 0,2,3");
+  await expect(page.locator("#fieldChecklist tr").nth(1).locator("td").nth(2)).toHaveText("yes");
 
   const labels = await page.locator(".node-marker .node-label").allTextContents();
   expect(labels.join(" ")).not.toContain("0.00 m");
@@ -42,6 +54,8 @@ test("records typed and text telemetry to downloadable NDJSON", async ({ page })
 
   await page.locator("#recordToggle").click();
   await expect(page.locator("#recordToggle")).toHaveText("Stop (0)");
+  await expect(page.locator("#recordingWarning")).toBeHidden();
+  await expect(page.locator("#recordState")).toHaveText("on");
 
   await page.evaluate(() => {
     handleLine(JSON.stringify({
@@ -60,8 +74,10 @@ test("records typed and text telemetry to downloadable NDJSON", async ({ page })
   });
 
   await expect(page.locator("#recordToggle")).toHaveText("Stop (3)");
+  await expect(page.locator("#recordRangeValue")).toHaveText("2");
   const downloadPromise = page.waitForEvent("download");
   await page.locator("#recordToggle").click();
+  await expect(page.locator("#recordingWarning")).toBeVisible();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^nav-mcu-node-1-.*\.ndjson$/);
   const stream = await download.createReadStream();

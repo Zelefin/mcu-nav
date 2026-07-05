@@ -20,6 +20,8 @@
   .pill { font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid var(--line); color:var(--muted); }
   .pill.on { color:var(--ok); border-color:var(--ok); }
   .pill.off { color:var(--bad); border-color:var(--bad); }
+  .recording-warning { min-height:30px; display:flex; align-items:center; justify-content:center; padding:4px 12px; border-bottom:1px solid rgba(248,81,73,.75); background:rgba(248,81,73,.2); color:#ffd7d4; font-weight:700; text-align:center; }
+  .recording-warning[hidden] { display:none; }
   main { display:grid; grid-template-columns:minmax(320px,360px) minmax(0,1fr); gap:16px; padding:16px; align-items:start; }
   @media (max-width: 920px){ main { grid-template-columns:1fr; } }
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; min-width:0; overflow:hidden; }
@@ -53,6 +55,7 @@
   .node-label { max-width:220px; padding:2px 7px; border-radius:5px; background:rgba(15,18,22,.88); border:1px solid rgba(230,237,243,.16); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font:12px/1.35 ui-monospace,Menlo,Consolas,monospace; }
   .node-marker.gnss .node-dot { background:#3fb950; box-shadow:0 0 0 3px rgba(63,185,80,.24); }
   .node-marker.radio .node-dot { background:#d29922; box-shadow:0 0 0 3px rgba(210,153,34,.28); }
+  .node-marker.evidence .node-dot { background:var(--bad); box-shadow:0 0 0 3px rgba(248,81,73,.26); }
   .node-marker.degraded { opacity:.76; }
   .node-marker.stale { opacity:.43; }
   .node-marker.this .node-dot { border-color:#fff; box-shadow:0 0 0 4px rgba(255,255,255,.18),0 0 0 8px rgba(77,163,255,.13); }
@@ -60,7 +63,9 @@
   .range-layer { position:absolute; inset:0; z-index:1; pointer-events:none; overflow:visible; }
   .range-line { stroke:var(--accent); stroke-width:2; stroke-dasharray:6 4; opacity:.82; vector-effect:non-scaling-stroke; }
   .range-line.stale { stroke:var(--warn); opacity:.62; }
+  .range-line.compare { stroke:var(--bad); stroke-width:3; stroke-dasharray:none; opacity:.9; }
   .range-label { position:absolute; transform:translate(-50%,-50%); padding:2px 6px; border-radius:5px; background:rgba(15,18,22,.88); border:1px solid rgba(230,237,243,.16); color:var(--fg); font:11px/1.35 ui-monospace,Menlo,Consolas,monospace; white-space:nowrap; }
+  .range-label.compare { border-color:rgba(248,81,73,.72); color:#ffd7d4; }
   .kv { display:flex; justify-content:space-between; gap:8px; padding:4px 0; border-bottom:1px dashed var(--line); }
   .kv:last-child { border-bottom:0; }
   .kv span:first-child { color:var(--muted); }
@@ -139,6 +144,7 @@
   <button id="debugToggle" disabled>Debug off</button>
   <button id="recordToggle">Record</button>
 </header>
+<div id="recordingWarning" class="recording-warning">Recording off - field data is not being saved.</div>
 
 <main>
   <section class="panel" id="nodePanel">
@@ -169,6 +175,16 @@
       <input id="altInput" type="number" placeholder="altitude mm" style="width:130px" />
       <button id="setAlt" disabled>Set altitude</button>
     </div>
+    <h2 style="margin-top:18px">Position comparison</h2>
+    <div class="kv"><span>Accepted</span><span id="cmpAccepted" class="mono">—</span></div>
+    <div class="kv"><span>Local GNSS</span><span id="cmpGnss" class="mono">—</span></div>
+    <div class="kv"><span>Horizontal delta</span><span id="cmpDelta" class="mono">—</span></div>
+    <div class="kv"><span>GNSS health</span><span id="cmpGnssHealth" class="mono">—</span></div>
+    <h2 style="margin-top:18px">Radio solve</h2>
+    <div class="kv"><span>Outcome</span><span id="solveOutcome" class="mono">—</span></div>
+    <div class="kv"><span>Cadence</span><span id="solveCadence" class="mono">—</span></div>
+    <div class="kv"><span>Inputs</span><span id="solveInputs" class="mono">—</span></div>
+    <div class="kv"><span>Residuals</span><span id="solveResiduals" class="mono">—</span></div>
     <h2 style="margin-top:18px">Node names</h2>
     <table class="compact">
       <thead><tr><th>ID</th><th>Name</th><th>NVS</th></tr></thead>
@@ -194,6 +210,14 @@
         <div id="mapEmpty" class="map-empty">No live positions.</div>
       </div>
     </div>
+
+    <h2>Recording</h2>
+    <div class="kv"><span>State</span><span id="recordState" class="mono">off</span></div>
+    <div class="kv"><span>Duration</span><span id="recordDuration" class="mono">—</span></div>
+    <div class="kv"><span>Records</span><span id="recordCountValue" class="mono">0</span></div>
+    <div class="kv"><span>Local GNSS</span><span id="recordGnssValue" class="mono">0 snapshots</span></div>
+    <div class="kv"><span>RADIO_3D</span><span id="recordRadioValue" class="mono">0 snapshots</span></div>
+    <div class="kv"><span>Ranges</span><span id="recordRangeValue" class="mono">0</span></div>
 
     <h2>Field checklist</h2>
     <table class="data-table field-table">
@@ -239,6 +263,15 @@ let debugEnabled = false;
 let recording = false;
 let recordingStartedAt = 0;
 let recordCount = 0;
+const recordStats = {
+  snapshots: 0,
+  ranges: 0,
+  logs: 0,
+  nodeQuality: 0,
+  localGnss: 0,
+  radio3d: 0,
+  rejected: 0,
+};
 const captureLines = [];
 const mapLibreMarkers = new Map();
 const plotMarkers = new Map();
@@ -264,6 +297,7 @@ const fmtAge = (ms) => ms < 1000 ? "now" : Math.floor(ms / 1000) + "s";
 const fmtSigned = (value, digits = 0) => hasNumber(value) ? Number(value).toFixed(digits) : DASH;
 const fmtQuality = (value) => hasNumber(value) ? Number(value).toFixed(2) : DASH;
 const fmtMeters = (m) => hasNumber(m) ? Number(m).toFixed(2) + " m" : DASH;
+const e7ToDeg = (e7) => Number(e7) / 1e7;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -409,7 +443,7 @@ function mapLabelFor(id, source, isThis) {
 function positionClass(pos) {
   return [
     "node-marker",
-    pos.source === "RADIO_3D" ? "radio" : "gnss",
+    pos.evidence ? "evidence" : (pos.source === "RADIO_3D" ? "radio" : "gnss"),
     pos.isThis ? "this" : "",
     pos.degraded ? "degraded" : "",
     pos.stale ? "stale" : "",
@@ -434,6 +468,62 @@ function coordinatesValid(latE7, lonE7) {
   return Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
 }
 
+function localGnssEvidence(snapshot = lastSnapshot) {
+  const g = snapshot?.local_gnss;
+  if (!g || !g.present || !g.valid || !coordinatesValid(g.lat_e7, g.lon_e7)) return null;
+  return {
+    source: "GNSS",
+    latE7: Number(g.lat_e7),
+    lonE7: Number(g.lon_e7),
+    altMm: hasNumber(g.alt_mm) ? Number(g.alt_mm) : null,
+    lat: e7ToDeg(g.lat_e7),
+    lon: e7ToDeg(g.lon_e7),
+    used: !!g.used,
+    usage: g.usage || (g.used ? "solution" : "diagnostic"),
+    ageMs: hasNumber(g.age_ms) ? Number(g.age_ms) : null,
+    fixType: g.fix_type || "UNKNOWN",
+    satellites: hasNumber(g.satellites) ? Number(g.satellites) : null,
+    hdopCenti: hasNumber(g.hdop_centi) ? Number(g.hdop_centi) : null,
+    haccMm: hasNumber(g.hacc_mm) ? Number(g.hacc_mm) : null,
+    vaccMm: hasNumber(g.vacc_mm) ? Number(g.vacc_mm) : null,
+  };
+}
+
+function solutionPosition(snapshot = lastSnapshot) {
+  if (!hasSolvedPosition(snapshot) || !coordinatesValid(snapshot.pos?.lat_e7, snapshot.pos?.lon_e7)) return null;
+  const source = fallbackPositionSourceForSnapshot(snapshot);
+  return {
+    source,
+    latE7: Number(snapshot.pos.lat_e7),
+    lonE7: Number(snapshot.pos.lon_e7),
+    altMm: hasNumber(snapshot.pos.alt_mm) ? Number(snapshot.pos.alt_mm) : null,
+    lat: e7ToDeg(snapshot.pos.lat_e7),
+    lon: e7ToDeg(snapshot.pos.lon_e7),
+  };
+}
+
+function horizontalDistanceMeters(a, b) {
+  if (!a || !b || !Number.isFinite(a.lat) || !Number.isFinite(a.lon) || !Number.isFinite(b.lat) || !Number.isFinite(b.lon)) return null;
+  const rad = Math.PI / 180;
+  const lat1 = a.lat * rad;
+  const lat2 = b.lat * rad;
+  const dLat = (b.lat - a.lat) * rad;
+  const dLon = (b.lon - a.lon) * rad;
+  const sinLat = Math.sin(dLat / 2);
+  const sinLon = Math.sin(dLon / 2);
+  const h = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(Math.max(0, 1 - h)));
+}
+
+function localGnssComparison(snapshot = lastSnapshot) {
+  const accepted = solutionPosition(snapshot);
+  const gnss = localGnssEvidence(snapshot);
+  if (!accepted || !gnss) return null;
+  const horizontalM = horizontalDistanceMeters(accepted, gnss);
+  if (!hasNumber(horizontalM)) return null;
+  return { accepted, gnss, horizontalM };
+}
+
 function snapshotMapPositions(snapshot = lastSnapshot) {
   const now = Date.now();
   const positions = [];
@@ -453,6 +543,22 @@ function snapshotMapPositions(snapshot = lastSnapshot) {
         ageMs: 0,
         isThis: true,
         updatedAt: now,
+      });
+    }
+    const gnss = localGnssEvidence(snapshot);
+    if (gnss && !gnss.used) {
+      positions.push({
+        id: `local-gnss-${id}`,
+        source: "LOCAL_GNSS_EVIDENCE",
+        lat: gnss.lat,
+        lon: gnss.lon,
+        label: `${labelFor(id)} GNSS evidence`,
+        degraded: false,
+        stale: hasNumber(gnss.ageMs) && gnss.ageMs > STALE_POSITION_MS,
+        ageMs: gnss.ageMs,
+        isThis: false,
+        evidence: true,
+        updatedAt: now - (gnss.ageMs || 0),
       });
     }
   }
@@ -849,9 +955,41 @@ function makeRangeRecordFromLog(line, tsMs = Date.now()) {
   return record;
 }
 
+function resetRecordStats() {
+  for (const key of Object.keys(recordStats)) recordStats[key] = 0;
+}
+
+function updateRecordStats(record) {
+  if (!record || typeof record !== "object") return;
+  if (record.type === "snapshot") {
+    recordStats.snapshots += 1;
+    const snapshot = record.data || record.snapshot;
+    if (localGnssEvidence(snapshot)) recordStats.localGnss += 1;
+    if (normalizedPositionSource(snapshot?.position_source || snapshot?.src) === "RADIO_3D") recordStats.radio3d += 1;
+    if (snapshot?.sol === "REJECTED" || (snapshot?.reject && snapshot.reject !== "NONE")) recordStats.rejected += 1;
+  } else if (record.type === "range") {
+    recordStats.ranges += 1;
+  } else if (record.type === "log") {
+    recordStats.logs += 1;
+  } else if (record.type === "node_quality") {
+    recordStats.nodeQuality += 1;
+  }
+}
+
+function renderRecordingSummary() {
+  $("recordState").textContent = recording ? "on" : "off";
+  $("recordState").className = `mono ${recording ? "ok" : "bad"}`;
+  $("recordDuration").textContent = recording && recordingStartedAt ? fmtAge(Date.now() - recordingStartedAt) : DASH;
+  $("recordCountValue").textContent = String(recordCount);
+  $("recordGnssValue").textContent = `${recordStats.localGnss} snapshots`;
+  $("recordRadioValue").textContent = `${recordStats.radio3d} snapshots`;
+  $("recordRangeValue").textContent = String(recordStats.ranges);
+}
+
 function captureRecord(record) {
   if (!recording || !record) return;
   captureLines.push(JSON.stringify(record));
+  updateRecordStats(record);
   recordCount += 1;
   updateRecordButton();
 }
@@ -860,12 +998,17 @@ function updateRecordButton() {
   $("recordToggle").textContent = recording
     ? `Stop (${recordCount})`
     : "Record";
+  $("recordToggle").classList.toggle("primary", recording);
+  const warning = $("recordingWarning");
+  if (warning) warning.hidden = recording;
+  renderRecordingSummary();
 }
 
 function startRecording() {
   captureLines.length = 0;
   recordingStartedAt = Date.now();
   recordCount = 0;
+  resetRecordStats();
   recording = true;
   captureLines.push(JSON.stringify({
     type: "meta",
@@ -1047,6 +1190,7 @@ function rangeLineFeatures(positions) {
   const now = Date.now();
   const lines = [];
   for (const pos of positions) {
+    if (!Number.isInteger(pos.id)) continue;
     if (pos.id === currentNodeId) continue;
     const obs = bestObservationForNode(pos.id);
     if (!obs || obs.state !== "ok" || !hasNumber(obs.rangeMm) || !obs.updatedAt) continue;
@@ -1059,7 +1203,21 @@ function rangeLineFeatures(positions) {
       rangeMm: Number(obs.rangeMm),
       ageMs,
       stale: ageMs > STALE_POSITION_MS,
+      kind: "range",
       label: `${fmtM(obs.rangeMm)} ${fmtAge(ageMs)}`,
+    });
+  }
+  const comparison = localGnssComparison();
+  if (comparison && !comparison.gnss.used) {
+    lines.push({
+      id: "local-gnss-delta",
+      from: comparison.accepted,
+      to: comparison.gnss,
+      rangeMm: null,
+      ageMs: comparison.gnss.ageMs,
+      stale: false,
+      kind: "compare",
+      label: `GNSS ${fmtMeters(comparison.horizontalM)}`,
     });
   }
   return lines;
@@ -1083,11 +1241,11 @@ function renderPlotRangeLines(positions) {
     path.setAttribute("y1", a.y.toFixed(3));
     path.setAttribute("x2", b.x.toFixed(3));
     path.setAttribute("y2", b.y.toFixed(3));
-    path.setAttribute("class", `range-line${line.stale ? " stale" : ""}`);
+    path.setAttribute("class", `range-line${line.kind === "compare" ? " compare" : ""}${line.stale ? " stale" : ""}`);
     svg.appendChild(path);
 
     const label = document.createElement("div");
-    label.className = "range-label";
+    label.className = `range-label${line.kind === "compare" ? " compare" : ""}`;
     label.textContent = line.label;
     label.style.left = `${((a.x + b.x) / 2).toFixed(3)}%`;
     label.style.top = `${((a.y + b.y) / 2).toFixed(3)}%`;
@@ -1104,6 +1262,7 @@ function rangeGeoJson(positions) {
         id: line.id,
         label: line.label,
         stale: line.stale,
+        kind: line.kind,
       },
       geometry: {
         type: "LineString",
@@ -1123,15 +1282,22 @@ function renderMapLibreRangeLines(positions) {
       id: "local-range-lines-fresh",
       type: "line",
       source: "local-range-lines",
-      filter: ["==", ["get", "stale"], false],
+      filter: ["all", ["==", ["get", "stale"], false], ["!=", ["get", "kind"], "compare"]],
       paint: { "line-color": "#4da3ff", "line-width": 2, "line-dasharray": [2, 2], "line-opacity": 0.82 },
     });
     map.addLayer({
       id: "local-range-lines-stale",
       type: "line",
       source: "local-range-lines",
-      filter: ["==", ["get", "stale"], true],
+      filter: ["all", ["==", ["get", "stale"], true], ["!=", ["get", "kind"], "compare"]],
       paint: { "line-color": "#d29922", "line-width": 2, "line-dasharray": [2, 2], "line-opacity": 0.62 },
+    });
+    map.addLayer({
+      id: "local-gnss-comparison-line",
+      type: "line",
+      source: "local-range-lines",
+      filter: ["==", ["get", "kind"], "compare"],
+      paint: { "line-color": "#f85149", "line-width": 3, "line-opacity": 0.9 },
     });
     map.addLayer({
       id: "local-range-labels",
@@ -1400,6 +1566,7 @@ function peerHasLiveEvidence(peer) {
 }
 
 function localHasGnss(snapshot) {
+  if (localGnssEvidence(snapshot)) return true;
   const source = fallbackPositionSourceForSnapshot(snapshot);
   return source === "GNSS" && fallbackPositionValid(source, snapshot?.position_valid, snapshot?.position_degraded);
 }
@@ -1545,6 +1712,49 @@ function renderPeerSnapshot() {
   }
 }
 
+function formatPositionSummary(pos) {
+  if (!pos) return DASH;
+  return `${pos.source} ${fmtDeg(pos.latE7)}, ${fmtDeg(pos.lonE7)}`;
+}
+
+function renderPositionComparison(s) {
+  const accepted = solutionPosition(s);
+  const gnss = localGnssEvidence(s);
+  const comparison = localGnssComparison(s);
+  $("cmpAccepted").textContent = formatPositionSummary(accepted);
+  $("cmpGnss").textContent = gnss ? `${fmtDeg(gnss.latE7)}, ${fmtDeg(gnss.lonE7)} (${gnss.usage})` : DASH;
+  $("cmpDelta").textContent = comparison ? fmtMeters(comparison.horizontalM) : DASH;
+  if (!gnss) {
+    $("cmpGnssHealth").textContent = DASH;
+    return;
+  }
+  const hdop = hasNumber(gnss.hdopCenti) ? (gnss.hdopCenti / 100).toFixed(2) : DASH;
+  const sats = hasNumber(gnss.satellites) ? String(gnss.satellites) : DASH;
+  const age = hasNumber(gnss.ageMs) ? fmtAge(gnss.ageMs) : DASH;
+  $("cmpGnssHealth").textContent = `${gnss.fixType} sats=${sats} hdop=${hdop} hacc=${fmtM(gnss.haccMm)} age=${age}`;
+}
+
+function renderRadioSolveDiagnostics(s) {
+  const solve = s?.radio_solve;
+  if (!solve) {
+    $("solveOutcome").textContent = DASH;
+    $("solveCadence").textContent = DASH;
+    $("solveInputs").textContent = DASH;
+    $("solveResiduals").textContent = DASH;
+    return;
+  }
+  const age = hasNumber(solve.age_ms) ? fmtAge(Number(solve.age_ms)) : DASH;
+  const elapsed = hasNumber(solve.elapsed_ms) ? `${Number(solve.elapsed_ms)}ms` : DASH;
+  const interval = hasNumber(solve.interval_ms) ? `${Number(solve.interval_ms)}ms` : DASH;
+  const generation = hasNumber(solve.generation) ? Number(solve.generation) : DASH;
+  const lastGeneration = hasNumber(solve.last_generation) ? Number(solve.last_generation) : DASH;
+  const anchors = Array.isArray(s?.anchor_ids) ? s.anchor_ids.filter((id) => isNodeId(Number(id))).join(",") : "";
+  $("solveOutcome").textContent = solve.outcome || DASH;
+  $("solveCadence").textContent = `age ${age}, elapsed ${elapsed}, interval ${interval}`;
+  $("solveInputs").textContent = `gen ${generation}/${lastGeneration}, anchors ${anchors || DASH}`;
+  $("solveResiduals").textContent = `rms ${fmtMeters(s?.residual_rms_m)}, max ${fmtMeters(s?.max_residual_m)}, geom ${fmtQuality(s?.geometry_score)}, total ${fmtQuality(s?.total_quality)}`;
+}
+
 function render(s) {
   if (!s || !s.node) return;
   lastSnapshot = s;
@@ -1567,6 +1777,8 @@ function render(s) {
   $("nPos").textContent = hasSolvedPosition(s) ? fmtDeg(s.pos.lat_e7) + ", " + fmtDeg(s.pos.lon_e7) + " @ " + fmtM(s.pos.alt_mm) : DASH;
   $("nGps").textContent = lastGps ? "on (local GNSS)" : "off (trilateration)";
   $("nMock").textContent = lastMock ? "on" : "off";
+  renderPositionComparison(s);
+  renderRadioSolveDiagnostics(s);
   renderNodeNames();
   renderDistanceObservations();
   renderPeerSnapshot();
@@ -1584,9 +1796,38 @@ function demoSnapshot() {
     reject: "NONE",
     pos: { lat_e7: 504522000, lon_e7: 305260000, alt_mm: 0 },
     num_anchors: 3,
+    anchor_ids: [0, 2, 3],
+    residual_rms_m: 0.42,
+    max_residual_m: 0.71,
+    geometry_score: 0.88,
+    anchor_triangle_area_m2: 19600,
+    total_quality: 0.82,
     position_source: "RADIO_3D",
     position_valid: true,
     position_degraded: false,
+    local_gnss: {
+      present: true,
+      valid: true,
+      used: false,
+      usage: "disabled",
+      age_ms: 180,
+      fix_type: "3D",
+      satellites: 12,
+      hdop_centi: 69,
+      hacc_mm: 1200,
+      vacc_mm: 2500,
+      lat_e7: 504521650,
+      lon_e7: 305260250,
+      alt_mm: 174200,
+    },
+    radio_solve: {
+      outcome: "SOLVED",
+      age_ms: 180,
+      elapsed_ms: 520,
+      interval_ms: 500,
+      generation: 12,
+      last_generation: 12,
+    },
     peers: [
       {
         id: 0,
@@ -1698,12 +1939,14 @@ renderNodeNames(true);
 renderDistanceObservations();
 renderPeerSnapshot();
 renderFieldChecklist();
+updateRecordButton();
 initMap();
 if (new URLSearchParams(location.search).get("demo") === "1") loadDemo();
 setInterval(() => {
   renderDistanceObservations();
   renderPeerSnapshot();
   renderFieldChecklist();
+  renderRecordingSummary();
   renderMap();
 }, 1000);
 window.addEventListener("beforeunload", () => { if (port) disconnect(); });

@@ -25,6 +25,8 @@ UART adapter.
   connected node's radio-derived network view.
 - Start an NDJSON recording before moving nodes apart. Stop it after the test
   segment; the browser downloads a `nav-mcu-node-*.ndjson` capture.
+- The app shows a red recording-off strip until recording starts; do not begin
+  the field segment while that strip is visible.
 - Enable debug telemetry only during bring-up or diagnosis, then turn it off
   when checking final ranging/trilateration behavior.
 - Place three GPS-enabled nodes around the test area as anchors.
@@ -40,6 +42,9 @@ UART adapter.
 - GPS/GNSS positions appear as blue/green markers.
 - Accepted radio-estimated positions appear as amber/orange markers with
   `(no GPS)` in the label.
+- When the connected node has valid local GNSS but GNSS use is disabled, the
+  app shows that local GNSS as red comparison evidence and draws a red
+  horizontal delta line to the accepted RADIO_3D position.
 - Rejected or no-solution nodes do not appear as live markers.
 - Accepted degraded radio positions may appear, but with degraded styling.
 - Recently stale positions remain briefly as faded markers with age available
@@ -66,8 +71,14 @@ UART adapter.
   then resumes only after recentering.
 - Peer tables, serial logs, and debug details still expose altitude and
   diagnostic fields.
+- The position comparison panel shows the connected node's accepted position,
+  retained local GNSS evidence, horizontal delta, and GNSS health.
+- The radio solve panel shows latest solve outcome, cadence, input generation,
+  selected anchors, and residual/quality diagnostics.
 - The Record button downloads an NDJSON capture containing `meta`, `snapshot`,
   `range`, `node_quality`, and `log` records as they arrive.
+- The recording panel counts captured records, valid local-GNSS snapshots,
+  RADIO_3D snapshots, and range records while recording is active.
 - The app remains useful without internet access when `kyiv-oblast.pmtiles` and
   vendored assets are present.
 - The implementation workflow downloads or builds the Kyiv offline PMTiles
@@ -98,10 +109,14 @@ four-node snapshot or fixture:
 - Verify the map renders nonblank.
 - Verify the three GNSS markers use the GNSS style and labels.
 - Verify the `RADIO_3D` marker uses the no-GPS estimated style and label.
+- Verify the red local-GNSS evidence marker and red comparison line render when
+  the local GNSS sample is valid but not used.
 - Verify altitude is absent from map labels but remains present in tables or
   debug details.
 - Verify the Field checklist and local range links render from the deterministic
   fixture.
+- Verify the recording-off strip is visible before recording and hidden while
+  recording is active.
 - Verify the browser can record typed and text telemetry into downloadable
   NDJSON offline.
 - Capture a screenshot artifact for review when the smoke test runs locally or
