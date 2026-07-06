@@ -24,7 +24,9 @@ constexpr float kRangingBandwidthKhz = 1625.0f;
 constexpr uint8_t kRangingSpreadingFactor = 7u;
 constexpr uint8_t kRangingCodingRate = 5u;
 constexpr uint8_t kRangingSyncWord = RADIOLIB_SX128X_SYNC_WORD_PRIVATE;
-constexpr int8_t kRangingTxPowerDbm = 2;
+static_assert(RADIO_TX_POWER_DBM >= -18 && RADIO_TX_POWER_DBM <= 13,
+              "RADIO_TX_POWER_DBM must be in the SX1280 SetTxParams range -18..13 dBm");
+constexpr int8_t kRangingTxPowerDbm = RADIO_TX_POWER_DBM;
 constexpr uint16_t kRangingPreambleLen = 12u;
 constexpr uint32_t kRangingAddressBase = 0x4E415600UL;  // "NAV" + slave id
 constexpr uint32_t kMasterTimeoutMs = 350u;
