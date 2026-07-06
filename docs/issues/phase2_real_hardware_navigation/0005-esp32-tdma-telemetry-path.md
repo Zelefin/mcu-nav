@@ -19,6 +19,9 @@ periods, received radio frames decode into core peer telemetry events.
 - [ ] The peer table and telemetry UI update from real received beacon data.
 - [ ] Bad or unsupported radio frames are rejected without disrupting the node.
 - [ ] Host codec tests and at least one two-node hardware telemetry test pass.
+- [ ] Host TDMA tests cover the fixed four-node frame, 500 ms slot duration,
+      late-slot skip thresholds, timing-heartbeat validation, and 15 second
+      authority expiry before field flashing.
 
 ## Blocked by
 

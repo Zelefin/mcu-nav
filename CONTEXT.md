@@ -10,10 +10,31 @@ A fixed set of nodes that all directly hear each other and share deterministic
 radio time slots without relaying packets through other nodes.
 _Avoid_: Mesh, multi-hop mesh
 
+**TDMA radio mode**:
+The normal over-the-air operating mode for configured navigation nodes, where
+telemetry and ranging share deterministic slots in the single-hop TDMA network.
+_Avoid_: Experimental TDMA mode, opportunistic radio mode
+
 **TDMA time authority**:
 The configured node whose heartbeat defines the TDMA frame timing for the
 network.
 _Avoid_: Coordinator, master
+
+**TDMA timing heartbeat**:
+A heartbeat from the TDMA time authority that carries the current frame timing
+so other nodes can align their local slot schedule.
+_Avoid_: Clock sync packet, coordinator command
+
+**TDMA field reconstruction log**:
+A structured radio log event that records enough slot timing, role, and outcome
+context to reconstruct TDMA behavior after a field test.
+_Avoid_: Minimal heartbeat log, verbose debug dump
+
+**Waiting for TDMA authority**:
+The radio state for a configured non-authority node that has not recently heard
+the TDMA time authority and is therefore listening without starting independent
+ranging.
+_Avoid_: Fallback ranging, unscheduled discovery
 
 **Navigation anchor**:
 A peer whose GNSS-valid position and fresh range can be used as an input to a

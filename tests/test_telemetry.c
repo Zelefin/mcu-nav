@@ -130,6 +130,37 @@ static void test_debug_enable_roundtrip(void)
     assert(nav_telemetry_encode_debug_enable(&debug, 9u, bytes, 8u, &len) == NAV_STATUS_BAD_FRAME);
 }
 
+static void test_heartbeat_roundtrip(void)
+{
+    nav_radio_heartbeat_payload_t heartbeat = {
+        .node_id_u8 = 0u,
+        .uptime_ms_u32 = 123456u,
+        .status_flags_u32 = 0x5u,
+        .tdma_frame_index_u32 = 17u,
+        .tdma_slot_index_u8 = 3u,
+        .tdma_slot_ms_u16 = 500u,
+    };
+
+    uint8_t bytes[NAV_RADIO_MAX_FRAME_BYTES];
+    size_t len = 0u;
+    assert(nav_telemetry_encode_heartbeat(&heartbeat, 77u, bytes, sizeof(bytes), &len) == NAV_STATUS_OK);
+    assert(len == 22u);
+
+    nav_radio_frame_t frame;
+    assert(nav_radio_decode_frame(bytes, len, &frame) == NAV_STATUS_OK);
+    assert(frame.type == NAV_RADIO_MSG_HEARTBEAT);
+    assert(frame.frame_seq == 77u);
+
+    nav_radio_heartbeat_payload_t decoded;
+    assert(nav_telemetry_decode_heartbeat(&frame, &decoded) == NAV_STATUS_OK);
+    assert(decoded.node_id_u8 == 0u);
+    assert(decoded.uptime_ms_u32 == 123456u);
+    assert(decoded.status_flags_u32 == 0x5u);
+    assert(decoded.tdma_frame_index_u32 == 17u);
+    assert(decoded.tdma_slot_index_u8 == 3u);
+    assert(decoded.tdma_slot_ms_u16 == 500u);
+}
+
 static void test_node_quality_roundtrip(void)
 {
     nav_node_quality_report_t report = {
@@ -246,6 +277,7 @@ int main(void)
     test_radio_3d_beacon_roundtrip();
     test_range_roundtrip();
     test_debug_enable_roundtrip();
+    test_heartbeat_roundtrip();
     test_node_quality_roundtrip();
     test_node_quality_bounds();
     test_decode_errors();

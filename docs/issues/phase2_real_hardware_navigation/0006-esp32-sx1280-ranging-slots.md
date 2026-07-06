@@ -17,11 +17,16 @@ through the SX1280 ranging engine and does not invent distance data.
       observations with `request_id`.
 - [ ] Timeout, busy, bad frame, aborted, and ranging engine failures become
       endpoint-bearing range failure observations with `range_fail_reason`.
+- [ ] Late ranging slots are skipped when less than 400 ms remains; late
+      telemetry slots are skipped when less than 100 ms remains.
 - [ ] RSSI/SNR are logged or stored as diagnostics only.
 - [ ] Ranging does not use RSSI, packet timing, or host round-trip time as a
       distance source.
 - [ ] Two-node hardware tests show successful and failed attempts clearly in
       logs or telemetry-UI state.
+- [ ] Field captures show `TDMA slot_start` and `TDMA slot_complete` events,
+      range results stay inside their scheduled slots, and timeout rates can be
+      compared against the pre-TDMA captures.
 
 ## Blocked by
 

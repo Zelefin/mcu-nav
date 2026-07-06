@@ -75,6 +75,7 @@ static size_t get_i32(const uint8_t *b, size_t o, int32_t *v)
 #define NAV_TELEMETRY_RANGE_RESULT_LEN 21u
 #define NAV_TELEMETRY_RANGE_FAIL_LEN 13u
 #define NAV_TELEMETRY_DEBUG_ENABLE_LEN 3u
+#define NAV_TELEMETRY_HEARTBEAT_LEN 16u
 #define NAV_TELEMETRY_NODE_QUALITY_REPORT_LEN 42u
 
 static uint8_t clamp_quality_to_u8(float value)
@@ -202,6 +203,35 @@ nav_status_t nav_telemetry_encode_debug_enable(
     return nav_radio_encode_frame(&frame, out, out_capacity, out_len);
 }
 
+nav_status_t nav_telemetry_encode_heartbeat(
+    const nav_radio_heartbeat_payload_t *heartbeat,
+    uint16_t frame_seq,
+    uint8_t *out,
+    size_t out_capacity,
+    size_t *out_len
+)
+{
+    if (heartbeat == NULL || out == NULL || out_len == NULL) {
+        return NAV_STATUS_INVALID_ARGUMENT;
+    }
+    uint8_t payload[NAV_TELEMETRY_HEARTBEAT_LEN];
+    size_t o = 0u;
+    o = put_u8(payload, o, heartbeat->node_id_u8);
+    o = put_u32(payload, o, heartbeat->uptime_ms_u32);
+    o = put_u32(payload, o, heartbeat->status_flags_u32);
+    o = put_u32(payload, o, heartbeat->tdma_frame_index_u32);
+    o = put_u8(payload, o, heartbeat->tdma_slot_index_u8);
+    o = put_u16(payload, o, heartbeat->tdma_slot_ms_u16);
+
+    const nav_radio_frame_t frame = {
+        .type = NAV_RADIO_MSG_HEARTBEAT,
+        .frame_seq = frame_seq,
+        .payload = payload,
+        .payload_len = o,
+    };
+    return nav_radio_encode_frame(&frame, out, out_capacity, out_len);
+}
+
 nav_status_t nav_telemetry_encode_node_quality_report(
     const nav_node_quality_report_t *report,
     uint16_t frame_seq,
@@ -266,6 +296,32 @@ nav_status_t nav_telemetry_decode_debug_enable(const nav_radio_frame_t *frame, n
     size_t o = 0u;
     o = get_u8(frame->payload, o, &out->origin_node_id);
     (void)get_u16(frame->payload, o, &out->ttl_ms);
+    return NAV_STATUS_OK;
+}
+
+nav_status_t nav_telemetry_decode_heartbeat(
+    const nav_radio_frame_t *frame,
+    nav_radio_heartbeat_payload_t *out
+)
+{
+    if (frame == NULL || out == NULL) {
+        return NAV_STATUS_INVALID_ARGUMENT;
+    }
+    if (frame->type != NAV_RADIO_MSG_HEARTBEAT) {
+        return NAV_STATUS_NOT_IMPLEMENTED;
+    }
+    if (frame->payload_len < NAV_TELEMETRY_HEARTBEAT_LEN) {
+        return NAV_STATUS_BAD_FRAME;
+    }
+
+    memset(out, 0, sizeof(*out));
+    size_t o = 0u;
+    o = get_u8(frame->payload, o, &out->node_id_u8);
+    o = get_u32(frame->payload, o, &out->uptime_ms_u32);
+    o = get_u32(frame->payload, o, &out->status_flags_u32);
+    o = get_u32(frame->payload, o, &out->tdma_frame_index_u32);
+    o = get_u8(frame->payload, o, &out->tdma_slot_index_u8);
+    (void)get_u16(frame->payload, o, &out->tdma_slot_ms_u16);
     return NAV_STATUS_OK;
 }
 
