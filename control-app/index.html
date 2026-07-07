@@ -185,6 +185,13 @@
     <div class="kv"><span>Cadence</span><span id="solveCadence" class="mono">—</span></div>
     <div class="kv"><span>Inputs</span><span id="solveInputs" class="mono">—</span></div>
     <div class="kv"><span>Residuals</span><span id="solveResiduals" class="mono">—</span></div>
+    <h2 style="margin-top:18px">TDMA</h2>
+    <div class="kv"><span>Sync</span><span id="tdmaSync" class="mono">—</span></div>
+    <div class="kv"><span>Frame / slot</span><span id="tdmaFrameSlot" class="mono">—</span></div>
+    <div class="kv"><span>Action</span><span id="tdmaAction" class="mono">—</span></div>
+    <div class="kv"><span>Authority age</span><span id="tdmaAuthorityAge" class="mono">—</span></div>
+    <div class="kv"><span>Missed slots</span><span id="tdmaMissed" class="mono">0</span></div>
+    <div class="kv"><span>Last event</span><span id="tdmaLast" class="mono">—</span></div>
     <h2 style="margin-top:18px">Node names</h2>
     <table class="compact">
       <thead><tr><th>ID</th><th>Name</th><th>NVS</th></tr></thead>
@@ -218,6 +225,9 @@
     <div class="kv"><span>Local GNSS</span><span id="recordGnssValue" class="mono">0 snapshots</span></div>
     <div class="kv"><span>RADIO_3D</span><span id="recordRadioValue" class="mono">0 snapshots</span></div>
     <div class="kv"><span>Ranges</span><span id="recordRangeValue" class="mono">0</span></div>
+    <div class="kv"><span>TDMA logs</span><span id="recordTdmaValue" class="mono">0</span></div>
+    <div class="kv"><span>TDMA missed</span><span id="recordTdmaMissedValue" class="mono">0</span></div>
+    <div class="kv"><span>TDMA authority</span><span id="recordTdmaAuthorityValue" class="mono">0 / 0</span></div>
 
     <h2>Field checklist</h2>
     <table class="data-table field-table">
@@ -271,11 +281,30 @@ const recordStats = {
   localGnss: 0,
   radio3d: 0,
   rejected: 0,
+  tdma: 0,
+  tdmaMissed: 0,
+  tdmaAuthorityMissing: 0,
+  tdmaAuthorityMismatch: 0,
 };
 const captureLines = [];
 const mapLibreMarkers = new Map();
 const plotMarkers = new Map();
 const lastMapPositions = new Map();
+const tdmaStatus = {
+  updatedAt: 0,
+  event: null,
+  syncState: null,
+  frameIndex: null,
+  slotIndex: null,
+  action: null,
+  role: null,
+  fromId: null,
+  toId: null,
+  peerId: null,
+  authorityAgeMs: null,
+  reason: null,
+  missedSlots: 0,
+};
 
 const DASH = "—";
 const NODE_NAMES_KEY = "nav-mcu.nodeNames.v1";
@@ -332,6 +361,10 @@ function cleanName(value) {
 
 function isNodeId(id) {
   return Number.isInteger(id) && id >= 0 && id < 256;
+}
+
+function isFieldNodeId(id) {
+  return Number.isInteger(id) && id >= 0 && id < 4;
 }
 
 function discoverNode(id) {
@@ -777,6 +810,7 @@ function ingestTypedRecord(record, options = {}) {
   }
   if (record.type === "log") {
     const text = String(record.text || "");
+    ingestTdmaLogRecord(record);
     if (text) {
       logLine(text, record.level === "ERROR");
       const derived = makeRangeRecordFromLog(text, record.ts_ms || Date.now());
@@ -814,6 +848,7 @@ function handleLine(line) {
   }
   const logRecord = makeLogRecord(line, tsMs);
   captureRecord(logRecord);
+  ingestTdmaLogRecord(logRecord);
   const rangeRecord = makeRangeRecordFromLog(line, tsMs);
   if (rangeRecord) {
     captureRecord(rangeRecord);
@@ -887,6 +922,60 @@ function fieldStateClass(state) {
 
 function displayNodeLabel(id) {
   return `${labelFor(id)} #${id}`;
+}
+
+function tdmaField(line, key) {
+  return fieldValue(line, key);
+}
+
+function ingestTdmaLogRecord(record) {
+  const text = String(record?.text || "");
+  const tag = record?.tag || parseLogTag(text);
+  if (tag !== "TDMA" && !text.includes("[TDMA]")) return false;
+
+  const event = tdmaField(text, "event") || "log";
+  tdmaStatus.updatedAt = Date.now();
+  tdmaStatus.event = event;
+  tdmaStatus.syncState = tdmaField(text, "sync_state") || tdmaStatus.syncState;
+  tdmaStatus.reason = tdmaField(text, "reason") || tdmaStatus.reason;
+
+  const frameIndex = intField(text, "frame_index");
+  const slotIndex = intField(text, "slot_index");
+  const authorityAge = intField(text, "authority_age_ms");
+  const fromId = intField(text, "from_id");
+  const toId = intField(text, "to_id");
+  const peerId = intField(text, "peer_id");
+  if (frameIndex !== null) tdmaStatus.frameIndex = frameIndex;
+  if (slotIndex !== null) tdmaStatus.slotIndex = slotIndex;
+  if (authorityAge !== null) tdmaStatus.authorityAgeMs = authorityAge;
+  if (fromId !== null) tdmaStatus.fromId = fromId;
+  if (toId !== null) tdmaStatus.toId = toId;
+  if (peerId !== null) tdmaStatus.peerId = peerId;
+
+  tdmaStatus.action = tdmaField(text, "action") || tdmaStatus.action;
+  tdmaStatus.role = tdmaField(text, "role") || tdmaStatus.role;
+  if (event === "slot_missed") tdmaStatus.missedSlots += 1;
+  renderTdmaStatus();
+  return true;
+}
+
+function renderTdmaStatus() {
+  const sync = tdmaStatus.syncState || DASH;
+  $("tdmaSync").textContent = sync;
+  $("tdmaSync").className = `mono ${sync === "authority" || sync === "synced" ? "ok" : sync === "expired" || sync === "waiting" ? "bad" : ""}`;
+  $("tdmaFrameSlot").textContent =
+    tdmaStatus.frameIndex === null || tdmaStatus.slotIndex === null ? DASH : `${tdmaStatus.frameIndex} / ${tdmaStatus.slotIndex}`;
+  const actionParts = [];
+  if (tdmaStatus.action) actionParts.push(tdmaStatus.action);
+  if (tdmaStatus.role) actionParts.push(tdmaStatus.role);
+  if (isFieldNodeId(tdmaStatus.fromId) && isFieldNodeId(tdmaStatus.toId)) actionParts.push(`${tdmaStatus.fromId}->${tdmaStatus.toId}`);
+  $("tdmaAction").textContent = actionParts.length ? actionParts.join(" ") : DASH;
+  $("tdmaAuthorityAge").textContent = tdmaStatus.authorityAgeMs === null ? DASH : fmtAge(tdmaStatus.authorityAgeMs);
+  $("tdmaMissed").textContent = String(tdmaStatus.missedSlots);
+  $("tdmaMissed").className = `mono ${tdmaStatus.missedSlots > 0 ? "warn" : ""}`;
+  const lastAge = tdmaStatus.updatedAt ? ` ${fmtAge(Date.now() - tdmaStatus.updatedAt)}` : "";
+  const reason = tdmaStatus.reason && tdmaStatus.reason !== "none" ? ` ${tdmaStatus.reason}` : "";
+  $("tdmaLast").textContent = tdmaStatus.event ? `${tdmaStatus.event}${reason}${lastAge}` : DASH;
 }
 
 function isoForFilename(tsMs) {
@@ -971,6 +1060,13 @@ function updateRecordStats(record) {
     recordStats.ranges += 1;
   } else if (record.type === "log") {
     recordStats.logs += 1;
+    if ((record.tag || parseLogTag(record.text || "")) === "TDMA" || String(record.text || "").includes("[TDMA]")) {
+      recordStats.tdma += 1;
+      const event = fieldValue(String(record.text || ""), "event");
+      if (event === "slot_missed") recordStats.tdmaMissed += 1;
+      if (event === "authority_missing") recordStats.tdmaAuthorityMissing += 1;
+      if (event === "authority_mismatch") recordStats.tdmaAuthorityMismatch += 1;
+    }
   } else if (record.type === "node_quality") {
     recordStats.nodeQuality += 1;
   }
@@ -984,6 +1080,9 @@ function renderRecordingSummary() {
   $("recordGnssValue").textContent = `${recordStats.localGnss} snapshots`;
   $("recordRadioValue").textContent = `${recordStats.radio3d} snapshots`;
   $("recordRangeValue").textContent = String(recordStats.ranges);
+  $("recordTdmaValue").textContent = String(recordStats.tdma);
+  $("recordTdmaMissedValue").textContent = String(recordStats.tdmaMissed);
+  $("recordTdmaAuthorityValue").textContent = `${recordStats.tdmaAuthorityMissing} missing / ${recordStats.tdmaAuthorityMismatch} mismatch`;
 }
 
 function captureRecord(record) {

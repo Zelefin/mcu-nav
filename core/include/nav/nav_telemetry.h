@@ -47,6 +47,21 @@ nav_status_t nav_telemetry_encode_debug_enable(
     size_t *out_len
 );
 
+/* Encodes liveness and TDMA timing as a complete HEARTBEAT frame. */
+nav_status_t nav_telemetry_encode_heartbeat(
+    const nav_radio_heartbeat_payload_t *heartbeat,
+    uint16_t frame_seq,
+    uint8_t *out,
+    size_t out_capacity,
+    size_t *out_len
+);
+
+/* Decodes a HEARTBEAT payload from an already decoded radio frame. */
+nav_status_t nav_telemetry_decode_heartbeat(
+    const nav_radio_frame_t *frame,
+    nav_radio_heartbeat_payload_t *out
+);
+
 /* Decodes a DEBUG_ENABLE payload from an already decoded radio frame. */
 nav_status_t nav_telemetry_decode_debug_enable(const nav_radio_frame_t *frame, nav_debug_enable_t *out);
 

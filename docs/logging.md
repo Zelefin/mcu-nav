@@ -16,7 +16,7 @@ elapsed since `Logger::begin()`.
 ## Categories And Levels
 
 Categories: `BOOT`, `CONFIG`, `GNSS`, `RADIO_PROTO`, `PEER_TABLE`, `RANGE`,
-`QUALITY`, `STATE`, `SOLUTION`, `REPLAY`, `SIM`, `ERROR`.
+`TDMA`, `QUALITY`, `STATE`, `SOLUTION`, `REPLAY`, `SIM`, `ERROR`.
 
 Levels: `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`.
 
@@ -38,6 +38,14 @@ t=123456 level=INFO cat=PEER_TABLE event=telemetry_update peer=2 packet_seq=104 
 - `PEER_TABLE peer_marked_stale`
 - `RANGE range_update`
 - `RANGE range_fail`
+- `TDMA authority_sync`
+- `TDMA authority_missing`
+- `TDMA authority_mismatch`
+- `TDMA frame_start`
+- `TDMA slot_start`
+- `TDMA slot_decision`
+- `TDMA slot_missed`
+- `TDMA slot_complete`
 - `QUALITY anchor_accepted`
 - `QUALITY anchor_rejected`
 - `SOLUTION solve_attempt`
@@ -81,6 +89,35 @@ t=1200 level=DEBUG cat=SOLUTION event=solve_skipped reason=CADENCE elapsed_ms=20
 The snapshot also carries structured `radio_solve` diagnostics so captures can
 distinguish `SOLVED`, `REJECTED`, `SKIPPED_CADENCE`, and
 `SKIPPED_UNCHANGED_INPUTS` without relying on debug-level text logs.
+
+TDMA field reconstruction logs are always on in the first TDMA field
+implementation. They are local/control-channel logs, not OTA debug telemetry;
+the ADR 0004 debug telemetry flag still controls extra over-the-air node-quality
+traffic.
+
+TDMA slot logs include enough shared fields to reconstruct the schedule from a
+single captured node:
+
+```text
+node_id=<id>
+local_ms=<ms>
+frame_index=<n>
+slot_index=<n>
+slot_ms=<ms>
+remaining_ms=<ms>
+action=<beacon|range|listen>
+role=<authority|follower|ranging_master|ranging_slave|listener>
+from_id=<id|255>
+to_id=<id|255>
+peer_id=<id|255>
+authority_age_ms=<ms>
+sync_state=<authority|synced|waiting|expired>
+reason=<text>
+```
+
+Detailed SX1280 exchange fields remain on `RANGE` logs, including
+`request_id`, `elapsed_ms`, `irq`, `flags`, `error`, `rssi_dbm`, `snr_db`, and
+`range_mm`.
 
 Solve failure:
 

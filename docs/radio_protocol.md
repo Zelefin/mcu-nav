@@ -122,7 +122,7 @@ table as local distances.
 | `REQUEST_RANGE` | node → peer | Schedule/correlate one SX1280 ranging-engine attempt. | none directly |
 | `RANGE_RESULT` | ranging master → all | Successful SX1280 ranging-engine result for `from_id`/`to_id`. | `NAV_EVT_RANGE_RESULT` for local endpoint ranges; pair-range observation for third-party ranges |
 | `RANGE_FAIL` | ranging master → all | Failed SX1280 ranging-engine attempt for `from_id`/`to_id`. | `NAV_EVT_RANGE_FAIL` for local endpoint failures; pair-range observation for third-party failures |
-| `HEARTBEAT` | peer → all | Liveness / status flags. | liveness only |
+| `HEARTBEAT` | peer → all | Liveness / TDMA timing from the time authority. | liveness / TDMA alignment only |
 | `STATUS` / `STATS` | peer → all | Detailed state / link counters. | diagnostics only |
 | `LOG_TEXT` | peer → all | Optional diagnostic text. | diagnostic log only |
 | `DEBUG_ENABLE` (71) | connected node → all | Keep peers in debug telemetry mode for a TTL. | none (enables reporting) |
@@ -259,7 +259,22 @@ missing links between non-local nodes.
 node_id_u8
 uptime_ms_u32
 status_flags_u32
+tdma_frame_index_u32
+tdma_slot_index_u8
+tdma_slot_ms_u16
+tdma_slot_elapsed_ms_u16
 ```
+
+For the first TDMA implementation, node `0` is the TDMA time authority. Its
+heartbeat carries the active frame index, slot index, slot duration, and
+elapsed time inside that slot so nodes `1..3` can align their local schedule.
+Heartbeats from non-authority nodes are liveness only; receivers must not use
+them as timing authority. A follower that has not heard a valid node `0` timing
+heartbeat for 15 seconds stops scheduled ranging and enters the
+waiting-for-authority state. A follower rejects timing heartbeats whose slot
+duration, slot elapsed time, or frame plan does not match the fixed four-node
+500 ms TDMA plan, logs the mismatch, and keeps its previous valid timing until
+that timing expires.
 
 ### `REQUEST_RANGE`
 
@@ -354,9 +369,40 @@ These are radio-layer causes and must not be stored as `nav_reject_reason_t`.
 
 - One node is the configured **TDMA time authority**; its heartbeat defines the
   frame timing (see CONTEXT.md).
+- The authority follows the same slot schedule as other nodes. It does not get
+  extra transmit or ranging time outside its assigned slots.
 - A frame interleaves a **telemetry cycle** (each node beacons in normal packet
   mode) and a **ranging cycle** (a scheduled pass over unique peer pairs using
   the SX1280 ranging engine).
+- The first field implementation uses a fixed four-node frame for node IDs
+  `0..3`: telemetry slots `0, 1, 2, 3`, followed by ranging slots `0->1`,
+  `0->2`, `0->3`, `1->2`, `1->3`, and `2->3`.
+- A scheduled telemetry slot transmits three copies of the node's normal
+  telemetry beacon with the same `packet_seq`, separated by short gaps. Any
+  received copy refreshes the peer telemetry for that frame. Node `0` also
+  transmits its TDMA timing heartbeat inside its own telemetry slot. Debug
+  telemetry remains best-effort idle/guard traffic per ADR 0004 and must not
+  preempt a scheduled ranging slot.
+- In a ranging slot, the scheduled slave enters SX1280 ranging receive first.
+  The scheduled master waits a 180 ms slot-start guard before initiating the
+  ranging request, leaving time for follower alignment and radio mode switching.
+- The first slot duration is 500 ms, so the 10-slot frame repeats every
+  5 seconds. Faster or adaptive timing is deferred until field evidence shows
+  the conservative schedule is reliable.
+- A ranging slot performs one SX1280 ranging exchange for the scheduled pair.
+  The first implementation reports the result or timeout and leaves remaining
+  slot time as guard/listen time; it does not retry inside the same slot.
+- If a node reaches a scheduled action too late to complete it inside the slot,
+  it skips the action, logs a missed slot, and returns to listening. Late work
+  must not overrun into the next slot. Initial guard thresholds are 400 ms
+  remaining for a ranging master exchange and 100 ms remaining for a telemetry
+  beacon.
+- The scheduled ranging master broadcasts the endpoint-bearing `RANGE_RESULT` or
+  `RANGE_FAIL` for the exchange. Receivers use local-endpoint ranges as solver
+  evidence and third-party pair ranges as network-health evidence only.
+- The TDMA frame rate is separate from the field evidence window. A missed
+  ranging slot does not immediately remove a range from solver eligibility; the
+  existing 30 second telemetry and range TTLs still define expiry.
 - Streaming events (`BEACON_RX`, `RANGE_RESULT`) are not ACKed in v1.
 
 ## Mapping To `nav_event_t`
