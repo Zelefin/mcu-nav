@@ -30,12 +30,16 @@ static_assert(RADIO_TX_POWER_DBM >= -18 && RADIO_TX_POWER_DBM <= 13,
 constexpr int8_t kRangingTxPowerDbm = RADIO_TX_POWER_DBM;
 constexpr uint16_t kRangingPreambleLen = 12u;
 constexpr uint32_t kRangingAddressBase = 0x4E415600UL;  // "NAV" + slave id
-constexpr uint32_t kMasterTimeoutMs = 350u;
+constexpr uint32_t kMasterTimeoutMs = 250u;
+constexpr uint32_t kRangingMasterStartGuardMs = 180u;
+constexpr uint32_t kTdmaHeartbeatRxCompensationMs = 100u;
 constexpr uint32_t kSlaveListenSliceMs = 120u;
 constexpr uint32_t kReportRxWindowMs = 45u;
 constexpr uint8_t kReportTxRepeats = 3u;
 constexpr uint32_t kReportTxGapMs = 8u;
 constexpr uint32_t kBestEffortTxGuardMs = 80u;
+constexpr uint8_t kTelemetryBeaconRepeats = 3u;
+constexpr uint32_t kTelemetryBeaconRepeatGapMs = 55u;
 constexpr uint32_t kDebugEnablePeriodMs = 1000u;
 constexpr uint16_t kDebugEnableTtlMs = 15000u;
 constexpr uint32_t kNodeQualityReportPeriodMs = 5000u;
@@ -46,6 +50,8 @@ constexpr size_t kRangeReportPayloadMax = 224u;
 
 static_assert(NAV_TDMA_FIXED_SLOT_MS > kMasterTimeoutMs,
               "TDMA slot must be longer than the SX1280 master timeout");
+static_assert(NAV_TDMA_FIXED_SLOT_MS >= (kRangingMasterStartGuardMs + kMasterTimeoutMs + 20u),
+              "TDMA slot must leave room for the master start guard and timeout");
 
 struct DebugTelemetryState {
   uint32_t remoteDebugActiveUntilMs;
@@ -134,6 +140,10 @@ uint32_t tdmaLocalSlotEnd(const TdmaRuntimeState &tdma, const nav_tdma_action_t 
   return tdma.localNodeId == NAV_TDMA_AUTHORITY_ID ? action.slot_end_ms : tdma.epochLocalMs + action.slot_end_ms;
 }
 
+uint32_t tdmaLocalSlotStart(const TdmaRuntimeState &tdma, const nav_tdma_action_t &action) {
+  return tdma.localNodeId == NAV_TDMA_AUTHORITY_ID ? action.slot_start_ms : tdma.epochLocalMs + action.slot_start_ms;
+}
+
 const char *tdmaActionName(const nav_tdma_action_t &action) {
   switch (action.type) {
     case NAV_TDMA_TX_BEACON:
@@ -189,15 +199,13 @@ void logTdmaSlot(const char *event,
                  uint32_t remainingMs,
                  const char *reason) {
   Logger::infof("TDMA",
-                "event=%s node_id=%u authority_id=%u local_ms=%lu frame_index=%lu slot_index=%lu slot_start_ms=%lu slot_end_ms=%lu remaining_ms=%lu action=%s role=%s from_id=%u to_id=%u peer_id=%u authority_age_ms=%lu sync_state=%s reason=%s",
+                "event=%s local_ms=%lu node_id=%u frame_index=%lu slot_index=%lu slot_ms=%u remaining_ms=%lu action=%s role=%s from_id=%u to_id=%u peer_id=%u authority_age_ms=%lu sync_state=%s reason=%s",
                 event,
-                static_cast<unsigned>(tdma.localNodeId),
-                static_cast<unsigned>(NAV_TDMA_AUTHORITY_ID),
                 static_cast<unsigned long>(localNow),
+                static_cast<unsigned>(tdma.localNodeId),
                 static_cast<unsigned long>(action.frame_index),
                 static_cast<unsigned long>(action.slot_index),
-                static_cast<unsigned long>(action.slot_start_ms),
-                static_cast<unsigned long>(action.slot_end_ms),
+                static_cast<unsigned>(NAV_TDMA_FIXED_SLOT_MS),
                 static_cast<unsigned long>(remainingMs),
                 tdmaActionName(action),
                 tdmaRoleName(tdma.localNodeId, action),
@@ -215,14 +223,14 @@ void logTdmaAuthority(const char *event,
                       const char *reason,
                       const nav_tdma_timing_heartbeat_t *heartbeat) {
   Logger::infof("TDMA",
-                "event=%s node_id=%u authority_id=%u local_ms=%lu frame_index=%lu slot_index=%lu slot_ms=%u authority_age_ms=%lu sync_state=%s reason=%s",
+                "event=%s local_ms=%lu node_id=%u frame_index=%lu slot_index=%lu slot_ms=%u slot_elapsed_ms=%u authority_age_ms=%lu sync_state=%s reason=%s",
                 event,
-                static_cast<unsigned>(tdma.localNodeId),
-                static_cast<unsigned>(NAV_TDMA_AUTHORITY_ID),
                 static_cast<unsigned long>(localNow),
+                static_cast<unsigned>(tdma.localNodeId),
                 static_cast<unsigned long>(heartbeat ? heartbeat->frame_index : 0u),
                 static_cast<unsigned long>(heartbeat ? heartbeat->slot_index : 0u),
                 static_cast<unsigned>(heartbeat ? heartbeat->slot_ms : 0u),
+                static_cast<unsigned>(heartbeat ? heartbeat->slot_elapsed_ms : 0u),
                 static_cast<unsigned long>(authorityAgeMs(tdma, localNow)),
                 tdmaSyncStateName(tdma, localNow),
                 reason ? reason : "none");
@@ -494,6 +502,19 @@ bool transmitTypedReport(const uint8_t *payload, size_t payloadLen, const char *
   return true;
 }
 
+uint8_t transmitTypedReportRepeated(const uint8_t *payload, size_t payloadLen, const char *kind, uint8_t repeats, uint32_t gapMs) {
+  uint8_t sent = 0u;
+  for (uint8_t attempt = 0u; attempt < repeats; ++attempt) {
+    if (transmitTypedReport(payload, payloadLen, kind)) {
+      ++sent;
+    }
+    if ((attempt + 1u) < repeats) {
+      delayMs(gapMs);
+    }
+  }
+  return sent;
+}
+
 bool debugTelemetryRemoteActive(const DebugTelemetryState &state, uint32_t now) {
   return state.remoteDebugActiveUntilMs != 0u && !timeReached(now, state.remoteDebugActiveUntilMs);
 }
@@ -567,6 +588,7 @@ void handleHeartbeatFrame(const nav_radio_frame_t &frame, uint8_t nodeId, TdmaRu
   timing.frame_index = heartbeat.tdma_frame_index_u32;
   timing.slot_index = heartbeat.tdma_slot_index_u8;
   timing.slot_ms = heartbeat.tdma_slot_ms_u16;
+  timing.slot_elapsed_ms = heartbeat.tdma_slot_elapsed_ms_u16;
 
   const uint32_t now = nowMs();
   const nav_status_t valid = nav_tdma_validate_timing_heartbeat(&tdmaState->schedule, &timing);
@@ -577,7 +599,11 @@ void handleHeartbeatFrame(const nav_radio_frame_t &frame, uint8_t nodeId, TdmaRu
 
   const uint32_t slotsPerFrame = static_cast<uint32_t>(nav_tdma_slots_per_frame(&tdmaState->schedule));
   const uint32_t absoluteSlot = (timing.frame_index * slotsPerFrame) + timing.slot_index;
-  tdmaState->epochLocalMs = now - (absoluteSlot * static_cast<uint32_t>(timing.slot_ms));
+  const uint32_t authorityTimeMs =
+      (absoluteSlot * static_cast<uint32_t>(timing.slot_ms)) +
+      static_cast<uint32_t>(timing.slot_elapsed_ms) +
+      kTdmaHeartbeatRxCompensationMs;
+  tdmaState->epochLocalMs = now - authorityTimeMs;
   tdmaState->lastAuthorityHeartbeatMs = now;
   tdmaState->authoritySynced = true;
   tdmaState->waitingLogged = false;
@@ -721,7 +747,18 @@ bool broadcastTelemetryBeacon(DebugTelemetryState *debugState, uint32_t now) {
     Logger::warnf("RADIO", "beacon tx=false status=%d", static_cast<int>(status));
     return false;
   }
-  return transmitTypedReport(frame, frameLen, "beacon");
+  const uint8_t sent = transmitTypedReportRepeated(frame,
+                                                   frameLen,
+                                                   "beacon",
+                                                   kTelemetryBeaconRepeats,
+                                                   kTelemetryBeaconRepeatGapMs);
+  Logger::infof("RADIO",
+                "beacon tx=%s packet_seq=%lu repeats=%u sent=%u",
+                sent > 0u ? "true" : "false",
+                static_cast<unsigned long>(packetSeq),
+                static_cast<unsigned>(kTelemetryBeaconRepeats),
+                static_cast<unsigned>(sent));
+  return sent > 0u;
 }
 
 bool broadcastTimingHeartbeat(const nav_tdma_action_t &action, TdmaRuntimeState *tdma) {
@@ -735,6 +772,9 @@ bool broadcastTimingHeartbeat(const nav_tdma_action_t &action, TdmaRuntimeState 
   heartbeat.tdma_frame_index_u32 = action.frame_index;
   heartbeat.tdma_slot_index_u8 = static_cast<uint8_t>(action.slot_index);
   heartbeat.tdma_slot_ms_u16 = static_cast<uint16_t>(NAV_TDMA_FIXED_SLOT_MS);
+  const uint32_t elapsedMs = heartbeat.uptime_ms_u32 - tdmaLocalSlotStart(*tdma, action);
+  heartbeat.tdma_slot_elapsed_ms_u16 =
+      static_cast<uint16_t>(elapsedMs < NAV_TDMA_FIXED_SLOT_MS ? elapsedMs : (NAV_TDMA_FIXED_SLOT_MS - 1u));
 
   uint8_t frame[NAV_RADIO_MAX_FRAME_BYTES];
   size_t frameLen = 0u;
@@ -746,12 +786,13 @@ bool broadcastTimingHeartbeat(const nav_tdma_action_t &action, TdmaRuntimeState 
   }
   const bool ok = transmitTypedReport(frame, frameLen, "heartbeat");
   Logger::infof("TDMA",
-                "event=authority_heartbeat_tx node_id=%u ok=%u frame_index=%lu slot_index=%lu slot_ms=%u",
+                "event=authority_heartbeat_tx node_id=%u ok=%u frame_index=%lu slot_index=%lu slot_ms=%u slot_elapsed_ms=%u",
                 static_cast<unsigned>(tdma->localNodeId),
                 ok ? 1u : 0u,
                 static_cast<unsigned long>(action.frame_index),
                 static_cast<unsigned long>(action.slot_index),
-                static_cast<unsigned>(NAV_TDMA_FIXED_SLOT_MS));
+                static_cast<unsigned>(NAV_TDMA_FIXED_SLOT_MS),
+                static_cast<unsigned>(heartbeat.tdma_slot_elapsed_ms_u16));
   return ok;
 }
 
@@ -887,7 +928,8 @@ void logMasterFailure(uint8_t masterId,
                       uint32_t elapsedMs,
                       int16_t error,
                       nav_range_fail_reason_t reason,
-                      const char *note) {
+                      const char *note,
+                      bool broadcastAirReport) {
   const uint16_t irq = radio.getIrqStatus();
   char flags[96];
   logIrqFlags(irq, flags, sizeof(flags));
@@ -902,21 +944,23 @@ void logMasterFailure(uint8_t masterId,
                 irq,
                 flags,
                 note);
-  char report[kRangeReportPayloadMax];
-  snprintf(report,
-           sizeof(report),
-           "range_result ok=false from=%u to=%u request_id=%u range_fail_reason=%s elapsed_ms=%lu error=%d note=\"%s\"",
-           static_cast<unsigned>(masterId),
-           static_cast<unsigned>(peerId),
-           static_cast<unsigned>(requestId),
-           rangeFailReasonName(reason),
-           static_cast<unsigned long>(elapsedMs),
-           error,
-           note);
-  broadcastRangeReport(report);
+  if (broadcastAirReport) {
+    char report[kRangeReportPayloadMax];
+    snprintf(report,
+             sizeof(report),
+             "range_result ok=false from=%u to=%u request_id=%u range_fail_reason=%s elapsed_ms=%lu error=%d note=\"%s\"",
+             static_cast<unsigned>(masterId),
+             static_cast<unsigned>(peerId),
+             static_cast<unsigned>(requestId),
+             rangeFailReasonName(reason),
+             static_cast<unsigned long>(elapsedMs),
+             error,
+             note);
+    broadcastRangeReport(report);
+  }
 }
 
-void runMasterExchange(uint8_t masterId, uint8_t peerId) {
+void runMasterExchange(uint8_t masterId, uint8_t peerId, bool broadcastAirReport) {
   const uint16_t requestId = ++gRequestId;
   const uint32_t startedMs = nowMs();
 
@@ -931,7 +975,8 @@ void runMasterExchange(uint8_t masterId, uint8_t peerId) {
                      nowMs() - startedMs,
                      RADIOLIB_ERR_SPI_CMD_TIMEOUT,
                      NAV_RANGE_FAIL_RADIO_BUSY,
-                     "BUSY stayed high before ranging");
+                     "BUSY stayed high before ranging",
+                     broadcastAirReport);
     injectRangeFail(peerId, requestId, NAV_RANGE_FAIL_RADIO_BUSY);
     return;
   }
@@ -946,7 +991,8 @@ void runMasterExchange(uint8_t masterId, uint8_t peerId) {
                      nowMs() - startedMs,
                      state,
                      NAV_RANGE_FAIL_RANGING_ENGINE_ERROR,
-                     "startRanging master failed");
+                     "startRanging master failed",
+                     broadcastAirReport);
     injectRangeFail(peerId, requestId, NAV_RANGE_FAIL_RANGING_ENGINE_ERROR);
     return;
   }
@@ -959,7 +1005,8 @@ void runMasterExchange(uint8_t masterId, uint8_t peerId) {
                      nowMs() - startedMs,
                      RADIOLIB_ERR_RANGING_TIMEOUT,
                      NAV_RANGE_FAIL_TIMEOUT,
-                     "ranging timeout");
+                     "ranging timeout",
+                     broadcastAirReport);
     injectRangeFail(peerId, requestId, NAV_RANGE_FAIL_TIMEOUT);
     return;
   }
@@ -973,7 +1020,8 @@ void runMasterExchange(uint8_t masterId, uint8_t peerId) {
                      nowMs() - startedMs,
                      state,
                      NAV_RANGE_FAIL_RANGING_ENGINE_ERROR,
-                     "finishRanging master failed");
+                     "finishRanging master failed",
+                     broadcastAirReport);
     injectRangeFail(peerId, requestId, NAV_RANGE_FAIL_RANGING_ENGINE_ERROR);
     return;
   }
@@ -1000,18 +1048,20 @@ void runMasterExchange(uint8_t masterId, uint8_t peerId) {
                   static_cast<unsigned long>(elapsedMs),
                   irq,
                   flags);
-    char report[kRangeReportPayloadMax];
-    snprintf(report,
-             sizeof(report),
-             "range_result ok=false from=%u to=%u request_id=%u range_fail_reason=%s raw_reg=%ld uncorrected_m=%.2f elapsed_ms=%lu note=\"invalid distance\"",
-             static_cast<unsigned>(masterId),
-             static_cast<unsigned>(peerId),
-             static_cast<unsigned>(requestId),
-             rangeFailReasonName(NAV_RANGE_FAIL_RANGING_ENGINE_ERROR),
-             static_cast<long>(rawReg),
-             static_cast<double>(rangeM),
-             static_cast<unsigned long>(elapsedMs));
-    broadcastRangeReport(report);
+    if (broadcastAirReport) {
+      char report[kRangeReportPayloadMax];
+      snprintf(report,
+               sizeof(report),
+               "range_result ok=false from=%u to=%u request_id=%u range_fail_reason=%s raw_reg=%ld uncorrected_m=%.2f elapsed_ms=%lu note=\"invalid distance\"",
+               static_cast<unsigned>(masterId),
+               static_cast<unsigned>(peerId),
+               static_cast<unsigned>(requestId),
+               rangeFailReasonName(NAV_RANGE_FAIL_RANGING_ENGINE_ERROR),
+               static_cast<long>(rawReg),
+               static_cast<double>(rangeM),
+               static_cast<unsigned long>(elapsedMs));
+      broadcastRangeReport(report);
+    }
     injectRangeFail(peerId, requestId, NAV_RANGE_FAIL_RANGING_ENGINE_ERROR);
     return;
   }
@@ -1036,20 +1086,22 @@ void runMasterExchange(uint8_t masterId, uint8_t peerId) {
               static_cast<unsigned long>(elapsedMs),
               irq,
               flags);
-  char report[kRangeReportPayloadMax];
-  snprintf(report,
-           sizeof(report),
-           "range_result ok=true from=%u to=%u request_id=%u range_mm=%lu uncorrected_m=%.2f raw_reg=%ld rssi_dbm=%.1f snr_db=%.1f elapsed_ms=%lu note=\"range ok\"",
-           static_cast<unsigned>(masterId),
-           static_cast<unsigned>(peerId),
-           static_cast<unsigned>(requestId),
-           static_cast<unsigned long>(rangeMm),
-           static_cast<double>(rangeM),
-           static_cast<long>(rawReg),
-           static_cast<double>(rssi),
-           static_cast<double>(snr),
-           static_cast<unsigned long>(elapsedMs));
-  broadcastRangeReport(report);
+  if (broadcastAirReport) {
+    char report[kRangeReportPayloadMax];
+    snprintf(report,
+             sizeof(report),
+             "range_result ok=true from=%u to=%u request_id=%u range_mm=%lu uncorrected_m=%.2f raw_reg=%ld rssi_dbm=%.1f snr_db=%.1f elapsed_ms=%lu note=\"range ok\"",
+             static_cast<unsigned>(masterId),
+             static_cast<unsigned>(peerId),
+             static_cast<unsigned>(requestId),
+             static_cast<unsigned long>(rangeMm),
+             static_cast<double>(rangeM),
+             static_cast<long>(rawReg),
+             static_cast<double>(rssi),
+             static_cast<double>(snr),
+             static_cast<unsigned long>(elapsedMs));
+    broadcastRangeReport(report);
+  }
   injectRangeResult(peerId,
                     requestId,
                     rangeMm,
@@ -1155,6 +1207,13 @@ void listenUntilLocalTime(uint8_t nodeId,
   }
 }
 
+void delayUntilLocalTime(uint32_t localDeadlineMs) {
+  while (!timeReached(nowMs(), localDeadlineMs)) {
+    const uint32_t remainingMs = localDeadlineMs - nowMs();
+    delayMs(remainingMs < 10u ? remainingMs : 10u);
+  }
+}
+
 void completeSlotListening(uint8_t nodeId,
                            const TdmaRuntimeState &tdma,
                            const nav_tdma_action_t &action,
@@ -1219,7 +1278,8 @@ void serviceTdmaSlot(uint8_t nodeId,
     }
     case NAV_TDMA_RANGE_PEER:
       logTdmaSlot("slot_decision", *tdmaState, action, nowMs(), action.remaining_ms, "range_master");
-      runMasterExchange(nodeId, action.peer_id);
+      delayUntilLocalTime(tdmaLocalSlotStart(*tdmaState, action) + kRangingMasterStartGuardMs);
+      runMasterExchange(nodeId, action.peer_id, false);
       completeSlotListening(nodeId, *tdmaState, action, debugState, tdmaState, false);
       break;
     case NAV_TDMA_LISTEN:

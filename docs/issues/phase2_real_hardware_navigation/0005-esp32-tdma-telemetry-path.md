@@ -11,7 +11,8 @@ periods, received radio frames decode into core peer telemetry events.
 - [ ] The TDMA scheduler selects telemetry transmit, ranging, and listen actions
       from system time.
 - [ ] Telemetry transmit slots encode local node telemetry from the current
-      snapshot and send it over SX1280 packet mode.
+      snapshot and send repeated copies over SX1280 packet mode with one
+      `packet_seq` per TDMA frame.
 - [ ] Telemetry receive handling decodes incoming beacons and injects peer
       telemetry events into the core.
 - [ ] RSSI/SNR from received packets are stored as receive diagnostics, not as

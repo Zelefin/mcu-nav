@@ -75,7 +75,7 @@ static size_t get_i32(const uint8_t *b, size_t o, int32_t *v)
 #define NAV_TELEMETRY_RANGE_RESULT_LEN 21u
 #define NAV_TELEMETRY_RANGE_FAIL_LEN 13u
 #define NAV_TELEMETRY_DEBUG_ENABLE_LEN 3u
-#define NAV_TELEMETRY_HEARTBEAT_LEN 16u
+#define NAV_TELEMETRY_HEARTBEAT_LEN 18u
 #define NAV_TELEMETRY_NODE_QUALITY_REPORT_LEN 42u
 
 static uint8_t clamp_quality_to_u8(float value)
@@ -222,6 +222,7 @@ nav_status_t nav_telemetry_encode_heartbeat(
     o = put_u32(payload, o, heartbeat->tdma_frame_index_u32);
     o = put_u8(payload, o, heartbeat->tdma_slot_index_u8);
     o = put_u16(payload, o, heartbeat->tdma_slot_ms_u16);
+    o = put_u16(payload, o, heartbeat->tdma_slot_elapsed_ms_u16);
 
     const nav_radio_frame_t frame = {
         .type = NAV_RADIO_MSG_HEARTBEAT,
@@ -321,7 +322,8 @@ nav_status_t nav_telemetry_decode_heartbeat(
     o = get_u32(frame->payload, o, &out->status_flags_u32);
     o = get_u32(frame->payload, o, &out->tdma_frame_index_u32);
     o = get_u8(frame->payload, o, &out->tdma_slot_index_u8);
-    (void)get_u16(frame->payload, o, &out->tdma_slot_ms_u16);
+    o = get_u16(frame->payload, o, &out->tdma_slot_ms_u16);
+    (void)get_u16(frame->payload, o, &out->tdma_slot_elapsed_ms_u16);
     return NAV_STATUS_OK;
 }
 

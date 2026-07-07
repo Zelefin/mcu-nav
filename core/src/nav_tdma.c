@@ -185,6 +185,9 @@ nav_status_t nav_tdma_validate_timing_heartbeat(
     if (heartbeat->slot_index >= nav_tdma_slots_per_frame(tdma)) {
         return NAV_STATUS_BAD_FRAME;
     }
+    if (heartbeat->slot_elapsed_ms >= heartbeat->slot_ms) {
+        return NAV_STATUS_BAD_FRAME;
+    }
     return NAV_STATUS_OK;
 }
 

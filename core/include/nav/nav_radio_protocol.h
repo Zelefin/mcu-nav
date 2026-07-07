@@ -96,6 +96,7 @@ typedef struct {
     uint32_t tdma_frame_index_u32;
     uint8_t tdma_slot_index_u8;
     uint16_t tdma_slot_ms_u16;
+    uint16_t tdma_slot_elapsed_ms_u16;
 } nav_radio_heartbeat_payload_t;
 
 typedef struct {

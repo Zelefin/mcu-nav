@@ -98,9 +98,9 @@ int main(void)
     assert(nav_tdma_action_at(&fixed, 2250u, &a) == NAV_STATUS_OK);
     assert(a.type == NAV_TDMA_RANGE_PEER);
     assert(a.from_id == 0u && a.to_id == 1u);
-    assert(!nav_tdma_action_can_start(&a)); /* 250 ms left is below the 400 ms range guard */
+    assert(!nav_tdma_action_can_start(&a)); /* 250 ms left is below the range guard */
 
-    assert(nav_tdma_action_at(&fixed, 2100u, &a) == NAV_STATUS_OK);
+    assert(nav_tdma_action_at(&fixed, 2050u, &a) == NAV_STATUS_OK);
     assert(a.type == NAV_TDMA_RANGE_PEER);
     assert(nav_tdma_action_can_start(&a));
 
@@ -109,6 +109,7 @@ int main(void)
         .frame_index = 3u,
         .slot_index = 2u,
         .slot_ms = NAV_TDMA_FIXED_SLOT_MS,
+        .slot_elapsed_ms = 25u,
     };
     assert(nav_tdma_validate_timing_heartbeat(&fixed, &hb) == NAV_STATUS_OK);
     hb.authority_id = 1u;
@@ -118,6 +119,9 @@ int main(void)
     assert(nav_tdma_validate_timing_heartbeat(&fixed, &hb) == NAV_STATUS_BAD_FRAME);
     hb.slot_ms = NAV_TDMA_FIXED_SLOT_MS;
     hb.slot_index = 10u;
+    assert(nav_tdma_validate_timing_heartbeat(&fixed, &hb) == NAV_STATUS_BAD_FRAME);
+    hb.slot_index = 2u;
+    hb.slot_elapsed_ms = NAV_TDMA_FIXED_SLOT_MS;
     assert(nav_tdma_validate_timing_heartbeat(&fixed, &hb) == NAV_STATUS_BAD_FRAME);
 
     assert(!nav_tdma_authority_expired(20000u, 5000u));

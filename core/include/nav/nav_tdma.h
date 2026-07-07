@@ -28,7 +28,7 @@ typedef enum {
 #define NAV_TDMA_AUTHORITY_ID 0u
 #define NAV_TDMA_FIXED_SLOT_MS 500u
 #define NAV_TDMA_AUTHORITY_TIMEOUT_MS 15000u
-#define NAV_TDMA_RANGE_MIN_REMAINING_MS 400u
+#define NAV_TDMA_RANGE_MIN_REMAINING_MS 450u
 #define NAV_TDMA_BEACON_MIN_REMAINING_MS 100u
 
 typedef struct {
@@ -48,6 +48,7 @@ typedef struct {
     uint32_t frame_index;
     uint32_t slot_index;
     uint16_t slot_ms;
+    uint16_t slot_elapsed_ms;
 } nav_tdma_timing_heartbeat_t;
 
 typedef struct {

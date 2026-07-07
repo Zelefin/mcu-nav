@@ -262,15 +262,17 @@ status_flags_u32
 tdma_frame_index_u32
 tdma_slot_index_u8
 tdma_slot_ms_u16
+tdma_slot_elapsed_ms_u16
 ```
 
 For the first TDMA implementation, node `0` is the TDMA time authority. Its
-heartbeat carries the active frame index, slot index, and slot duration so nodes
-`1..3` can align their local schedule. Heartbeats from non-authority nodes are
-liveness only; receivers must not use them as timing authority. A follower that
-has not heard a valid node `0` timing heartbeat for 15 seconds stops scheduled
-ranging and enters the waiting-for-authority state. A follower rejects timing
-heartbeats whose slot duration or frame plan does not match the fixed four-node
+heartbeat carries the active frame index, slot index, slot duration, and
+elapsed time inside that slot so nodes `1..3` can align their local schedule.
+Heartbeats from non-authority nodes are liveness only; receivers must not use
+them as timing authority. A follower that has not heard a valid node `0` timing
+heartbeat for 15 seconds stops scheduled ranging and enters the
+waiting-for-authority state. A follower rejects timing heartbeats whose slot
+duration, slot elapsed time, or frame plan does not match the fixed four-node
 500 ms TDMA plan, logs the mismatch, and keeps its previous valid timing until
 that timing expires.
 
@@ -375,10 +377,15 @@ These are radio-layer causes and must not be stored as `nav_reject_reason_t`.
 - The first field implementation uses a fixed four-node frame for node IDs
   `0..3`: telemetry slots `0, 1, 2, 3`, followed by ranging slots `0->1`,
   `0->2`, `0->3`, `1->2`, `1->3`, and `2->3`.
-- A scheduled telemetry slot transmits the node's normal telemetry beacon.
-  Node `0` also transmits its TDMA timing heartbeat inside its own telemetry
-  slot. Debug telemetry remains best-effort idle/guard traffic per ADR 0004 and
-  must not preempt a scheduled ranging slot.
+- A scheduled telemetry slot transmits three copies of the node's normal
+  telemetry beacon with the same `packet_seq`, separated by short gaps. Any
+  received copy refreshes the peer telemetry for that frame. Node `0` also
+  transmits its TDMA timing heartbeat inside its own telemetry slot. Debug
+  telemetry remains best-effort idle/guard traffic per ADR 0004 and must not
+  preempt a scheduled ranging slot.
+- In a ranging slot, the scheduled slave enters SX1280 ranging receive first.
+  The scheduled master waits a 180 ms slot-start guard before initiating the
+  ranging request, leaving time for follower alignment and radio mode switching.
 - The first slot duration is 500 ms, so the 10-slot frame repeats every
   5 seconds. Faster or adaptive timing is deferred until field evidence shows
   the conservative schedule is reliable.

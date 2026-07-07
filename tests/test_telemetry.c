@@ -139,12 +139,13 @@ static void test_heartbeat_roundtrip(void)
         .tdma_frame_index_u32 = 17u,
         .tdma_slot_index_u8 = 3u,
         .tdma_slot_ms_u16 = 500u,
+        .tdma_slot_elapsed_ms_u16 = 42u,
     };
 
     uint8_t bytes[NAV_RADIO_MAX_FRAME_BYTES];
     size_t len = 0u;
     assert(nav_telemetry_encode_heartbeat(&heartbeat, 77u, bytes, sizeof(bytes), &len) == NAV_STATUS_OK);
-    assert(len == 22u);
+    assert(len == 24u);
 
     nav_radio_frame_t frame;
     assert(nav_radio_decode_frame(bytes, len, &frame) == NAV_STATUS_OK);
@@ -159,6 +160,7 @@ static void test_heartbeat_roundtrip(void)
     assert(decoded.tdma_frame_index_u32 == 17u);
     assert(decoded.tdma_slot_index_u8 == 3u);
     assert(decoded.tdma_slot_ms_u16 == 500u);
+    assert(decoded.tdma_slot_elapsed_ms_u16 == 42u);
 }
 
 static void test_node_quality_roundtrip(void)

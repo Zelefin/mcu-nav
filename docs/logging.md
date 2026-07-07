@@ -100,12 +100,10 @@ single captured node:
 
 ```text
 node_id=<id>
-authority_id=<id>
 local_ms=<ms>
 frame_index=<n>
 slot_index=<n>
-slot_start_ms=<ms>
-slot_end_ms=<ms>
+slot_ms=<ms>
 remaining_ms=<ms>
 action=<beacon|range|listen>
 role=<authority|follower|ranging_master|ranging_slave|listener>
